@@ -73,7 +73,7 @@ def generate_gsc_chart_bytes(df_trend):
         df_trend["clicks"],
         color="#2563EB",
         linewidth=2,
-        label="Klicks",
+        label="Traffic",
     )
     ax.fill_between(
         df_trend["date"], df_trend["clicks"], color="#2563EB", alpha=0.15
@@ -87,7 +87,7 @@ def generate_gsc_chart_bytes(df_trend):
   ax.tick_params(axis="both", colors="#475569", labelsize=7.5)
   ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m"))
   ax.set_title(
-      "Organische Klicks (GSC - Letzte 90 Tage)",
+      "Organischer Traffic (GSC - Letzte 90 Tage)",
       fontsize=9,
       fontweight="bold",
       color="#0F172A",
@@ -264,7 +264,7 @@ def build_live_pdf_report(
 
   kpi_data = [[
       Paragraph(
-          f"<b>Organische Klicks (GSC)</b><br/><font size=11"
+          f"<b>Organischer Traffic (GSC)</b><br/><font size=11"
           f" color='#0F172A'><b>{int(c_clicks):,}</b></font><br/><font"
           f" color='#16A34A'>{calc_pct_str(c_clicks, p_clicks)}</font>",
           cell_style,
@@ -317,7 +317,7 @@ def build_live_pdf_report(
   )
   story.append(chart_table)
 
-  # Section 3: Keyword Rankings (OHNE SEITENUMBRUCH - STARTET DIREKT AUF SEITE 1)
+  # Section 3: Keyword Rankings 
   story.append(
       Paragraph(
           f"Top Keyword Rankings ({device_choice.capitalize()})",
@@ -335,17 +335,27 @@ def build_live_pdf_report(
   ]
   kw_table_data = [kw_headers]
 
-  for _, row in df_display.head(60).iterrows():
+  # Wir verarbeiten bis zu 100 Keywords für das PDF
+  for _, row in df_display.head(100).iterrows():
+    trend_raw = str(row["Trend"])
+    
+    # Emojis filtern und in reine Farbe für das PDF umwandeln
+    if "🟢" in trend_raw:
+      trend_pdf = f"<font color='#16A34A'><b>{trend_raw.replace('🟢 ', '')}</b></font>"
+    elif "🔴" in trend_raw:
+      trend_pdf = f"<font color='#DC2626'><b>{trend_raw.replace('🔴 ', '')}</b></font>"
+    else:
+      trend_pdf = f"<font color='#94A3B8'>{trend_raw.replace('➖ ', '')}</font>"
+
     kw_table_data.append([
         Paragraph(f"<b>{row['Keyword']}</b>", cell_style),
         Paragraph(str(row["Position"]), cell_style),
-        Paragraph(str(row["Trend"]), cell_style),
+        Paragraph(trend_pdf, cell_style),  # Nutzt HTML-Farbe statt Emoji
         Paragraph(f"{int(row['Suchvolumen']):,}", cell_style),
         Paragraph(f"{int(row['Traffic']):,}", cell_style),
         Paragraph(str(int(row["KD"])), cell_style),
     ])
 
-  # repeatRows=1 sorgt dafür, dass die Kopfzeile auf Seite 2 mitgedruckt wird
   kw_table = Table(
       kw_table_data, colWidths=[183, 60, 70, 70, 70, 70], repeatRows=1
   )
@@ -459,7 +469,7 @@ with tab1:
 
       col1, col2, col3, col4 = st.columns(4)
       col1.metric(
-          "Klicks",
+          "Organischer Traffic",
           f"{int(c_clicks):,}".replace(",", "."),
           delta=calc_pct_str(c_clicks, p_clicks),
       )
@@ -489,14 +499,14 @@ with tab1:
         "Metrik für Zeitverlauf auswählen",
         [
             "Durchschnittliche Position",
-            "Organische Klicks",
+            "Organischer Traffic",
             "Impressionen",
         ],
     )
 
     column_map = {
         "Position": ("position", True),
-        "Klicks": ("clicks", False),
+        "Traffic": ("clicks", False),
         "Impressionen": ("impressions", False),
     }
     for key, (col_name, inv_y) in column_map.items():
@@ -638,8 +648,8 @@ with tab2:
           "date": today_str,
           "date_compared": prev_month_str,
           "device": device_choice,
-          "limit": 1000,          # <--- HIER IST DAS KORRIGIERTE LIMIT (1000 statt 100)
-          "order_by": "traffic:desc",
+          "limit": 1000,          
+          "order_by": "position:asc", 
           "select": ahrefs_exact_select,
       }
 
@@ -657,7 +667,7 @@ with tab2:
         if keywords_raw:
           df_rank = pd.DataFrame(keywords_raw)
 
-          # Fehlerresistenter Aufbau des DataFrames (verhindert Indizierungs-Fehler)
+          # Fehlerresistenter Aufbau
           df_rank["position"] = pd.to_numeric(df_rank.get("position"), errors="coerce")
           df_rank = df_rank.dropna(subset=["position"]).copy()
 
