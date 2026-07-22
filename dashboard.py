@@ -115,12 +115,10 @@ def generate_kw_bar_bytes(df_display):
 
   fig, ax = plt.subplots(figsize=(2.8, 2.2), dpi=200)
 
-  # Umkehren, damit "Top 1-3" ganz oben im Balkendiagramm steht
   bars = ax.barh(
       categories[::-1], counts[::-1], color=colors_list[::-1], height=0.55
   )
 
-  # Zahlenwerte direkt neben die Balken schreiben
   max_val = max(counts) if max(counts) > 0 else 1
   for bar in bars:
     width = bar.get_width()
@@ -317,7 +315,7 @@ def build_live_pdf_report(
   )
   story.append(chart_table)
 
-  # Section 3: Keyword Rankings 
+  # Section 3: Keyword Rankings
   story.append(
       Paragraph(
           f"Top Keyword Rankings ({device_choice.capitalize()})",
@@ -335,11 +333,9 @@ def build_live_pdf_report(
   ]
   kw_table_data = [kw_headers]
 
-  # Wir verarbeiten bis zu 100 Keywords für das PDF
   for _, row in df_display.head(100).iterrows():
     trend_raw = str(row["Trend"])
-    
-    # Emojis filtern und in reine Farbe für das PDF umwandeln
+
     if "🟢" in trend_raw:
       trend_pdf = f"<font color='#16A34A'><b>{trend_raw.replace('🟢 ', '')}</b></font>"
     elif "🔴" in trend_raw:
@@ -350,7 +346,7 @@ def build_live_pdf_report(
     kw_table_data.append([
         Paragraph(f"<b>{row['Keyword']}</b>", cell_style),
         Paragraph(str(row["Position"]), cell_style),
-        Paragraph(trend_pdf, cell_style),  # Nutzt HTML-Farbe statt Emoji
+        Paragraph(trend_pdf, cell_style),
         Paragraph(f"{int(row['Suchvolumen']):,}", cell_style),
         Paragraph(f"{int(row['Traffic']):,}", cell_style),
         Paragraph(str(int(row["KD"])), cell_style),
@@ -648,8 +644,7 @@ with tab2:
           "date": today_str,
           "date_compared": prev_month_str,
           "device": device_choice,
-          "limit": 1000,          
-          "order_by": "position:asc", 
+          "limit": 1000,
           "select": ahrefs_exact_select,
       }
 
@@ -667,7 +662,7 @@ with tab2:
         if keywords_raw:
           df_rank = pd.DataFrame(keywords_raw)
 
-          # Fehlerresistenter Aufbau
+          # Nur Keywords behalten, die eine tatsächliche Position auf dem gewählten Gerät besitzen
           df_rank["position"] = pd.to_numeric(df_rank.get("position"), errors="coerce")
           df_rank = df_rank.dropna(subset=["position"]).copy()
 
@@ -693,13 +688,13 @@ with tab2:
           df_display["KD"] = pd.to_numeric(df_rank.get("keyword_difficulty", 0), errors="coerce").fillna(0).astype(int)
           df_display["URL"] = df_rank.get("url", "-").fillna("-")
 
-          # Sicherstellen, dass das DataFrame direkt hier sauber sortiert wird
+          # 1:1 Sortierung exakt nach Ranking (Position 1, 2, 3...)
           df_display = df_display.sort_values(by=["Position", "Suchvolumen"], ascending=[True, False]).reset_index(drop=True)
 
           if not df_display.empty:
             top10_count = len(df_display[df_display["Position"] <= 10])
 
-            st.markdown("### 🏆 Rank Tracker Keywords")
+            st.markdown(f"### 🏆 Rank Tracker Keywords ({device_choice.capitalize()})")
             st.metric(
                 "TRACKED KEYWORDS IN DEN TOP 10", f"{top10_count} Keywords"
             )
@@ -738,7 +733,7 @@ with tab2:
                 use_container_width=True,
             )
           else:
-            st.warning("Keine gerankten Keywords mit gültiger Position gefunden.")
+            st.warning(f"Keine gerankten Keywords auf {device_choice.capitalize()} gefunden.")
         else:
           st.warning("Keine Keywords in Ahrefs gefunden.")
       else:
