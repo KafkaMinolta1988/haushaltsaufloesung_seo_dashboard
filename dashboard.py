@@ -31,43 +31,61 @@ if eingabe != APP_PASSWORD:
     st.stop()
 
 # ==========================================
+# HILFSFUNKTION FÜR PROZENTRECHNUNG
+# ==========================================
+def calc_pct_str(curr, prev):
+    if prev == 0 and curr == 0: return "0.0%"
+    if prev == 0 and curr > 0: return "+100% (Neu)"
+    return f"{((curr - prev) / prev) * 100:+.1f}%"
+
+# ==========================================
 # 3. DASHBOARD MAIN
 # ==========================================
 st.empty()
 st.title("Performance-Dashboard")
 st.caption(f"Domain: {CLIENT_DOMAIN}")
 
-tab1, tab2 = st.tabs(["📊 Google Search Console (Trend)", "🎯 Ahrefs Analytics & Keywords"])
+tab1, tab2 = st.tabs(["📊 Google Search Console", "🎯 Ahrefs Analytics & Keywords"])
 
 # ------------------------------------------
-# TAB 1: GOOGLE SEARCH CONSOLE TREND
+# TAB 1: GOOGLE SEARCH CONSOLE
 # ------------------------------------------
+@st.cache_data(ttl=3600)
+def load_gsc_yoy_totals():
+    creds_dict = json.loads(GSC_JSON_RAW)
+    credentials = service_account.Credentials.from_service_account_info(
+        creds_dict, scopes=["https://www.googleapis.com/auth/webmasters.readonly"]
+    )
+    service = build('searchconsole', 'v1', credentials=credentials)
+
+    end_curr = datetime.now() - timedelta(days=2)
+    start_curr = end_curr - timedelta(days=30)
+    
+    end_prev = end_curr - timedelta(days=365)
+    start_prev = start_curr - timedelta(days=365)
+
+    def fetch_totals(s_date, e_date):
+        req = {'startDate': s_date.strftime('%Y-%m-%d'), 'endDate': e_date.strftime('%Y-%m-%d')}
+        res = service.searchanalytics().query(siteUrl=CLIENT_DOMAIN, body=req).execute()
+        return res.get('rows', [{'clicks': 0, 'impressions': 0, 'ctr': 0, 'position': 0}])[0]
+
+    return fetch_totals(start_curr, end_curr), fetch_totals(start_prev, end_prev)
+
 @st.cache_data(ttl=3600)
 def load_gsc_timeseries():
     creds_dict = json.loads(GSC_JSON_RAW)
     credentials = service_account.Credentials.from_service_account_info(
-        creds_dict,
-        scopes=["https://www.googleapis.com/auth/webmasters.readonly"]
+        creds_dict, scopes=["https://www.googleapis.com/auth/webmasters.readonly"]
     )
     service = build('searchconsole', 'v1', credentials=credentials)
 
     end_date = (datetime.now() - timedelta(days=2)).strftime('%Y-%m-%d')
     start_date = (datetime.now() - timedelta(days=92)).strftime('%Y-%m-%d')
-
-    request_body = {
-        'startDate': start_date,
-        'endDate': end_date,
-        'dimensions': ['date']
-    }
-
-    response = service.searchanalytics().query(
-        siteUrl=CLIENT_DOMAIN,
-        body=request_body
-    ).execute()
-
+    request_body = {'startDate': start_date, 'endDate': end_date, 'dimensions': ['date']}
+    
+    response = service.searchanalytics().query(siteUrl=CLIENT_DOMAIN, body=request_body).execute()
     rows = response.get('rows', [])
-    if not rows:
-        return None
+    if not rows: return None
 
     df = pd.DataFrame(rows)
     df['date'] = pd.to_datetime(df['keys'].str[0])
@@ -76,63 +94,50 @@ def load_gsc_timeseries():
     return df
 
 with tab1:
+    st.subheader("Performance (Letzte 30 Tage vs. Vorjahr)")
+    
+    with st.spinner("Lade GSC-Daten inkl. Vorjahr..."):
+        try:
+            curr_gsc, prev_gsc = load_gsc_yoy_totals()
+            
+            c_clicks = curr_gsc.get('clicks', 0)
+            p_clicks = prev_gsc.get('clicks', 0)
+            c_impr = curr_gsc.get('impressions', 0)
+            p_impr = prev_gsc.get('impressions', 0)
+            c_ctr = curr_gsc.get('ctr', 0) * 100
+            p_ctr = prev_gsc.get('ctr', 0) * 100
+            c_pos = curr_gsc.get('position', 0)
+            p_pos = prev_gsc.get('position', 0)
+
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Klicks", f"{int(c_clicks):,}".replace(",", "."), delta=calc_pct_str(c_clicks, p_clicks))
+            col2.metric("Impressionen", f"{int(c_impr):,}".replace(",", "."), delta=calc_pct_str(c_impr, p_impr))
+            col3.metric("Ø CTR", f"{c_ctr:.2f}%", delta=f"{c_ctr - p_ctr:+.2f}% Punkte")
+            
+            # Bei Ranking (Position) ist ein niedrigerer Wert besser -> delta_color="inverse" macht ein "-" grün!
+            col4.metric("Ø Position", f"{c_pos:.1f}", delta=f"{c_pos - p_pos:+.1f} Plätze", delta_color="inverse")
+            
+        except Exception as e:
+            st.error(f"Fehler beim Abruf der GSC YoY Daten: {e}")
+
+    st.divider()
+    
+    # Der Zeitverlauf-Graph darunter
     df_trend = load_gsc_timeseries()
     if df_trend is not None:
-        metrik_option = st.selectbox(
-            "Metrik auswählen",
-            options=["Durchschnittliche Position (Ranking)", "Organische Klicks", "Impressionen"]
-        )
-
-        if "Position" in metrik_option:
-            column_name = 'position'
-            label_name = 'Durchschnittliche Position'
-            invert_y = True
-        elif "Klicks" in metrik_option:
-            column_name = 'clicks'
-            label_name = 'Klicks'
-            invert_y = False
-        else:
-            column_name = 'impressions'
-            label_name = 'Impressionen'
-            invert_y = False
-
-        fig = px.line(
-            df_trend, x='date', y=column_name, markers=True,
-            title=f"{label_name} über die Zeit"
-        )
+        metrik_option = st.selectbox("Metrik für Zeitverlauf auswählen", ["Durchschnittliche Position", "Organische Klicks", "Impressionen"])
+        
+        column_map = {"Position": ('position', True), "Klicks": ('clicks', False), "Impressionen": ('impressions', False)}
+        for key, (col_name, inv_y) in column_map.items():
+            if key in metrik_option:
+                column_name, invert_y = col_name, inv_y
+        
+        fig = px.line(df_trend, x='date', y=column_name, markers=True, title=f"{metrik_option} (Letzte 90 Tage)")
         fig.update_traces(line_color='#4A90E2', line_width=3, marker=dict(size=8, color='#4A90E2'))
-        fig.update_layout(xaxis_title="Datum", yaxis_title=label_name, template="plotly_white", hovermode="x unified")
-        if invert_y:
-            fig.update_yaxes(autorange="reversed")
-
+        fig.update_layout(xaxis_title="Datum", yaxis_title=metrik_option, template="plotly_white", hovermode="x unified")
+        if invert_y: fig.update_yaxes(autorange="reversed")
+        
         st.plotly_chart(fig, use_container_width=True)
-
-        # KPI BERECHNUNGEN MIT GRÜNEN/ROTEN PFEILEN
-        aktueller_wert = df_trend[column_name].iloc[-1]
-        start_wert = df_trend[column_name].iloc[0]
-
-        col1, col2 = st.columns(2)
-        if column_name == 'position':
-            # Bei Position ist ein SINKENDER Wert positiv!
-            diff_pos = start_wert - aktueller_wert
-            trend_pct = ((start_wert - aktueller_wert) / start_wert * 100) if start_wert != 0 else 0
-            
-            col1.metric("AKTUELLER RANKING-DURCHSCHNITT", f"{aktueller_wert:.1f}")
-            # delta_color="inverse" sorgt dafür, dass negativer Positionswert (z.B. von Platz 15 auf Platz 8) grün angezeigt wird
-            col2.metric(
-                "PERFORMANCE-TREND", 
-                f"{aktueller_wert:.1f}", 
-                delta=f"{trend_pct:+.1f}% (Veränderung)",
-                delta_color="normal" if trend_pct >= 0 else "inverse"
-            )
-        else:
-            trend_pct = ((aktueller_wert - start_wert) / start_wert * 100) if start_wert != 0 else 0
-            col1.metric("AKTUELLER WERT", f"{int(aktueller_wert):,}".replace(",", "."))
-            col2.metric(
-                "PERFORMANCE-TREND", 
-                f"{int(aktueller_wert):,}".replace(",", "."), 
-                delta=f"{trend_pct:+.1f}%"
-            )
 
 # ------------------------------------------
 # TAB 2: AHREFS WEB ANALYTICS & RANK TRACKER
@@ -141,100 +146,63 @@ with tab2:
     st.subheader("🎯 Ahrefs Web Analytics & Keywords")
     
     if st.button("Ahrefs Daten jetzt live abrufen"):
-        headers = {
-            "Authorization": f"Bearer {AHREFS_KEY}",
-            "Accept": "application/json"
-        }
+        headers = {"Authorization": f"Bearer {AHREFS_KEY}", "Accept": "application/json"}
+        where_filter = json.dumps({"and": [{"and": [{"field": "source_channel", "is": ["eq", "search"]}]}]})
 
-        # --- Teil 1: Organischer Traffic aus Ahrefs Web Analytics ---
-        with st.spinner("Lade organischen Traffic aus Ahrefs Web Analytics..."):
-            to_date = datetime.now().strftime('%Y-%m-%dT23:59:59Z')
-            from_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%dT00:00:00Z')
+        # --- Teil 1: Analytics YoY ---
+        with st.spinner("Lade organischen Traffic inkl. Vorjahr..."):
+            now = datetime.now()
+            to_curr = now.strftime('%Y-%m-%dT23:59:59Z')
+            from_curr = (now - timedelta(days=30)).strftime('%Y-%m-%dT00:00:00Z')
+            
+            to_prev = (now - timedelta(days=365)).strftime('%Y-%m-%dT23:59:59Z')
+            from_prev = (now - timedelta(days=395)).strftime('%Y-%m-%dT00:00:00Z')
 
-            where_filter = json.dumps({
-                "and": [
-                    {
-                        "and": [
-                            {"field": "source_channel", "is": ["eq", "search"]}
-                        ]
-                    }
-                ]
-            })
+            params_curr = {"from": from_curr, "to": to_curr, "project_id": AHREFS_PROJECT_ID, "where": where_filter}
+            params_prev = {"from": from_prev, "to": to_prev, "project_id": AHREFS_PROJECT_ID, "where": where_filter}
 
-            analytics_url = "https://api.ahrefs.com/v3/web-analytics/stats"
-            analytics_params = {
-                "from": from_date,
-                "to": to_date,
-                "project_id": AHREFS_PROJECT_ID,
-                "where": where_filter
-            }
+            res_curr = requests.get("https://api.ahrefs.com/v3/web-analytics/stats", headers=headers, params=params_curr)
+            res_prev = requests.get("https://api.ahrefs.com/v3/web-analytics/stats", headers=headers, params=params_prev)
 
-            res_analytics = requests.get(analytics_url, headers=headers, params=analytics_params)
+            if res_curr.status_code == 200 and res_prev.status_code == 200:
+                stats_curr = res_curr.json().get("stats") or {}
+                stats_prev = res_prev.json().get("stats") or {}
 
-            if res_analytics.status_code == 200:
-                stats_raw = res_analytics.json().get("stats") or {}
-                
-                # ABFANGEN VON NONE-WERTE (Verhindert den ValueError)
-                visitors = int(stats_raw.get("visitors") or 0)
-                sessions = int(stats_raw.get("sessions") or 0)
-                pageviews = int(stats_raw.get("pageviews") or 0)
+                c_vis, p_vis = int(stats_curr.get("visitors") or 0), int(stats_prev.get("visitors") or 0)
+                c_ses, p_ses = int(stats_curr.get("sessions") or 0), int(stats_prev.get("sessions") or 0)
+                c_pag, p_pag = int(stats_curr.get("pageviews") or 0), int(stats_prev.get("pageviews") or 0)
 
-                st.markdown("### 👥 Organischer Traffic (Letzte 30 Tage)")
+                st.markdown("### 👥 Organischer Traffic (30 Tage vs. Vorjahr)")
                 col_a, col_b, col_c = st.columns(3)
-                
-                # Anzeige mit Tausendertrennzeichen
-                col_a.metric("Einzelne Besucher (Visitors)", f"{visitors:,}".replace(",", "."))
-                col_b.metric("Sitzungen (Sessions)", f"{sessions:,}".replace(",", "."))
-                col_c.metric("Seitenaufrufe (Pageviews)", f"{pageviews:,}".replace(",", "."))
+                col_a.metric("Einzelne Besucher", f"{c_vis:,}".replace(",", "."), delta=calc_pct_str(c_vis, p_vis))
+                col_b.metric("Sitzungen", f"{c_ses:,}".replace(",", "."), delta=calc_pct_str(c_ses, p_ses))
+                col_c.metric("Seitenaufrufe", f"{c_pag:,}".replace(",", "."), delta=calc_pct_str(c_pag, p_pag))
             else:
-                st.error(f"Fehler bei Ahrefs Analytics API: {res_analytics.status_code} - {res_analytics.text}")
+                st.error("Fehler beim Abruf der Ahrefs Analytics Vorjahresdaten.")
 
         st.divider()
 
-        # --- Teil 2: Rank Tracker Keywords mit grünen/roten Pfeilen ---
-        with st.spinner("Lade Keyword-Rankings aus Ahrefs..."):
-            today_str = datetime.now().strftime('%Y-%m-%d')
-            prev_month_str = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
-
-            rank_url = "https://api.ahrefs.com/v3/rank-tracker/overview"
+        # --- Teil 2: Rank Tracker ---
+        with st.spinner("Lade Keyword-Rankings..."):
             rank_params = {
-                "date": today_str,
-                "date_compared": prev_month_str,
-                "device": "desktop",
-                "limit": 100,
-                "order_by": "traffic:desc",
-                "project_id": AHREFS_PROJECT_ID,
+                "project_id": AHREFS_PROJECT_ID, "limit": 100, "order_by": "traffic:desc",
                 "select": "keyword,keyword_difficulty,position,position_prev,position_diff,volume,traffic,url"
             }
-
-            res_rank = requests.get(rank_url, headers=headers, params=rank_params)
+            res_rank = requests.get("https://api.ahrefs.com/v3/rank-tracker/overview", headers=headers, params=rank_params)
 
             if res_rank.status_code == 200:
                 keywords_raw = res_rank.json().get("overview", [])
-
                 if keywords_raw:
                     df_rank = pd.DataFrame(keywords_raw)
 
-                    # Funktion für grüne/rote Pfeile in der Tabelle
-                    def format_trend_arrow(diff):
-                        if pd.isna(diff) or diff == 0:
-                            return "➖ 0"
-                        elif diff > 0:
-                            return f"🟢 +{int(diff)}"
-                        else:
-                            return f"🔴 {int(diff)}"
+                    def format_trend(diff):
+                        if pd.isna(diff) or diff == 0: return "➖ 0"
+                        return f"🟢 +{int(diff)}" if diff > 0 else f"🔴 {int(diff)}"
 
-                    # Tabellenspalten aufbereiten
                     df_display = pd.DataFrame()
                     df_display["Keyword"] = df_rank.get("keyword", "")
                     df_display["Position"] = df_rank.get("position", None)
-                    
-                    # Pfeil-Spalte berechnen
-                    if "position_diff" in df_rank.columns:
-                        df_display["Trend (30T)"] = df_rank["position_diff"].apply(format_trend_arrow)
-                    else:
-                        df_display["Trend (30T)"] = "➖ 0"
-
+                    df_display["Trend"] = df_rank["position_diff"].apply(format_trend) if "position_diff" in df_rank.columns else "➖ 0"
                     df_display["Suchvolumen"] = df_rank.get("volume", 0)
                     df_display["Traffic"] = df_rank.get("traffic", 0)
                     df_display["KD"] = df_rank.get("keyword_difficulty", 0)
@@ -244,14 +212,6 @@ with tab2:
 
                     st.markdown("### 🏆 Rank Tracker Keywords")
                     st.metric("TRACKED KEYWORDS IN DEN TOP 10", f"{top10_count} Keywords")
-
-                    st.dataframe(
-                        df_display,
-                        use_container_width=True,
-                        hide_index=True
-                    )
-                    st.success("Ahrefs Daten erfolgreich geladen!")
+                    st.dataframe(df_display, use_container_width=True, hide_index=True)
                 else:
-                    st.warning("Keine Rank Tracker Daten für dieses Projekt gefunden.")
-            else:
-                st.error(f"Fehler bei Ahrefs Rank Tracker API: {res_rank.status_code} - {res_rank.text}")
+                    st.warning("Keine Rank Tracker Daten gefunden.")
