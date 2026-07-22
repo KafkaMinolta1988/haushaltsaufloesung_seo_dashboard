@@ -222,8 +222,8 @@ with tab2:
             if res_rank.status_code == 200:
                 json_data = res_rank.json()
                 
-                # Prüfe auf verschiedene mögliche Keys in der Antwort
-                keywords_raw = json_data.get("overview") or json_data.get("keywords") or []
+                # Exakte Datenquelle aus Ahrefs API ("overviews" mit Plural-"s")
+                keywords_raw = json_data.get("overviews") or json_data.get("overview") or json_data.get("keywords") or []
 
                 if keywords_raw:
                     df_rank = pd.DataFrame(keywords_raw)
@@ -238,19 +238,23 @@ with tab2:
 
                     df_display = pd.DataFrame()
                     df_display["Keyword"] = df_rank.get("keyword", "")
+                    
+                    # Positionen formatieren (NULL / None abfangen)
                     df_display["Position"] = df_rank.get("position", None)
+                    df_display["Position"] = df_display["Position"].apply(lambda x: int(x) if pd.notna(x) else "-")
                     
                     if "position_diff" in df_rank.columns:
                         df_display["Trend"] = df_rank["position_diff"].apply(format_trend_arrow)
                     else:
                         df_display["Trend"] = "➖ 0"
 
-                    df_display["Suchvolumen"] = df_rank.get("volume", 0)
-                    df_display["Traffic"] = df_rank.get("traffic", 0)
-                    df_display["KD"] = df_rank.get("keyword_difficulty", 0)
-                    df_display["URL"] = df_rank.get("url", "")
+                    df_display["Suchvolumen"] = df_rank.get("volume", 0).fillna(0).astype(int)
+                    df_display["Traffic"] = df_rank.get("traffic", 0).fillna(0).astype(int)
+                    df_display["KD"] = df_rank.get("keyword_difficulty", 0).fillna(0).astype(int)
+                    df_display["URL"] = df_rank.get("url", "").fillna("-")
 
-                    top10_count = len(df_display[df_display["Position"].fillna(99) <= 10])
+                    # Zählen der Top 10 Keywords
+                    top10_count = len(df_rank[df_rank["position"].notna() & (df_rank["position"] <= 10)])
 
                     st.markdown("### 🏆 Rank Tracker Keywords")
                     st.metric("TRACKED KEYWORDS IN DEN TOP 10", f"{top10_count} Keywords")
@@ -262,9 +266,6 @@ with tab2:
                     )
                     st.success(f"{len(df_display)} Keywords erfolgreich geladen!")
                 else:
-                    st.warning(f"Ahrefs antwortet mit 200 OK, liefert aber 0 Keywords zurück.")
-                    st.info(f"📍 Aktuell angefragte Projekt-ID: `{AHREFS_PROJECT_ID}`")
-                    st.markdown("**🔍 Vollständige Roh-Antwort von Ahrefs:**")
-                    st.json(json_data)
+                    st.warning("Keine Keywords in Ahrefs gefunden.")
             else:
                 st.error(f"Fehler bei Ahrefs Rank Tracker API ({res_rank.status_code}): {res_rank.text}")
