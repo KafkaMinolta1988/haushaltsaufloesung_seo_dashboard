@@ -1,11 +1,28 @@
+import io
 import json
 from datetime import datetime, timedelta
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
+import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
 import pandas as pd
 import plotly.express as px
 import requests
 import streamlit as st
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+
+# ReportLab Bibliotheken für PDF-Generierung
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.platypus import (
+    HRFlowable,
+    Image,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
 
 # ==========================================
 # 0. SEITEN-KONFIGURATION
@@ -37,7 +54,7 @@ if eingabe != APP_PASSWORD:
 
 
 # ==========================================
-# HILFSFUNKTION FÜR PROZENTRECHNUNG
+# HILFSFUNKTIONEN
 # ==========================================
 def calc_pct_str(curr, prev):
   if prev == 0 and curr == 0:
@@ -45,6 +62,301 @@ def calc_pct_str(curr, prev):
   if prev == 0 and curr > 0:
     return "+100% (Neu)"
   return f"{((curr - prev) / prev) * 100:+.1f}%"
+
+
+# --- PDF CHART 1: GSC Klicks Verlaufs-Chart ---
+def generate_gsc_chart_bytes(df_trend):
+  fig, ax = plt.subplots(figsize=(6.5, 2.2), dpi=200)
+  if df_trend is not None and not df_trend.empty:
+    ax.plot(
+        df_trend["date"],
+        df_trend["clicks"],
+        color="#2563EB",
+        linewidth=2,
+        label="Klicks",
+    )
+    ax.fill_between(
+        df_trend["date"], df_trend["clicks"], color="#2563EB", alpha=0.15
+    )
+
+  ax.set_facecolor("#F8FAFC")
+  fig.patch.set_facecolor("#ffffff")
+  ax.spines["top"].set_visible(False)
+  ax.spines["right"].set_visible(False)
+  ax.grid(axis="y", linestyle="--", alpha=0.5, color="#CBD5E1")
+  ax.tick_params(axis="both", colors="#475569", labelsize=7.5)
+  ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m"))
+  ax.set_title(
+      "Organische Klicks (GSC - Letzte 90 Tage)",
+      fontsize=8.5,
+      fontweight="bold",
+      color="#0F172A",
+  )
+
+  plt.tight_layout()
+  buf = io.BytesIO()
+  plt.savefig(buf, format="png", dpi=200, bbox_inches="tight")
+  plt.close(fig)
+  buf.seek(0)
+  return buf
+
+
+# --- PDF CHART 2: Keyword Donut-Chart ---
+def generate_kw_donut_bytes(df_display):
+  p1_3 = len(df_display[df_display["Position"].between(1, 3)])
+  p4_10 = len(df_display[df_display["Position"].between(4, 10)])
+  p11_20 = len(df_display[df_display["Position"].between(11, 20)])
+  p21_plus = len(df_display[df_display["Position"] > 20])
+
+  labels = [
+      f"Top 1-3 ({p1_3})",
+      f"Top 4-10 ({p4_10})",
+      f"Top 11-20 ({p11_20})",
+      f"21+ ({p21_plus})",
+  ]
+  sizes = [p1_3, p4_10, p11_20, p21_plus]
+  non_zeros = [
+      (l, s, c)
+      for l, s, c in zip(
+          labels, sizes, ["#16A34A", "#2563EB", "#F59E0B", "#94A3B8"]
+      )
+      if s > 0
+  ]
+
+  fig, ax = plt.subplots(figsize=(3.2, 2.2), dpi=200)
+  if non_zeros:
+    nz_labels, nz_sizes, nz_colors = zip(*non_zeros)
+    wedges, texts, autotexts = ax.pie(
+        nz_sizes,
+        labels=nz_labels,
+        colors=nz_colors,
+        autopct="%1.0f%%",
+        startangle=90,
+        pctdistance=0.75,
+        textprops=dict(color="#1E293B", fontsize=7),
+        wedgeprops=dict(width=0.35, edgecolor="white", linewidth=1.5),
+    )
+    for autotext in autotexts:
+      autotext.set_color("white")
+      autotext.set_fontsize(7.5)
+      autotext.set_weight("bold")
+  else:
+    ax.text(
+        0.5,
+        0.5,
+        "Keine KW Daten",
+        ha="center",
+        va="center",
+        fontsize=8,
+        color="#64748B",
+    )
+
+  ax.set_title(
+      "Keyword-Verteilung", fontsize=8.5, fontweight="bold", color="#0F172A"
+  )
+  plt.tight_layout()
+  buf = io.BytesIO()
+  plt.savefig(buf, format="png", dpi=200, bbox_inches="tight")
+  plt.close(fig)
+  buf.seek(0)
+  return buf
+
+
+# --- KUNDEN-PDF REPORT BUILDER (REPORTLAB) ---
+def build_live_pdf_report(
+    domain,
+    gsc_yoy_data,
+    ahrefs_analytics_data,
+    df_display,
+    df_trend,
+    device_choice,
+):
+  pdf_buffer = io.BytesIO()
+  doc = SimpleDocTemplate(
+      pdf_buffer,
+      pagesize=A4,
+      leftMargin=36,
+      rightMargin=36,
+      topMargin=36,
+      bottomMargin=36,
+  )
+  story = []
+
+  PRIMARY_COLOR = colors.HexColor("#0F172A")
+  ACCENT_COLOR = colors.HexColor("#2563EB")
+  TEXT_COLOR = colors.HexColor("#334155")
+  LIGHT_BG = colors.HexColor("#F8FAFC")
+
+  styles = getSampleStyleSheet()
+  title_style = ParagraphStyle(
+      "T",
+      parent=styles["Heading1"],
+      fontName="Helvetica-Bold",
+      fontSize=18,
+      leading=22,
+      textColor=PRIMARY_COLOR,
+  )
+  subtitle_style = ParagraphStyle(
+      "ST",
+      parent=styles["Normal"],
+      fontName="Helvetica",
+      fontSize=9,
+      leading=12,
+      textColor=colors.HexColor("#64748B"),
+      spaceAfter=8,
+  )
+  section_heading = ParagraphStyle(
+      "SH",
+      parent=styles["Heading2"],
+      fontName="Helvetica-Bold",
+      fontSize=11,
+      leading=15,
+      textColor=PRIMARY_COLOR,
+      spaceBefore=8,
+      spaceAfter=4,
+  )
+  cell_style = ParagraphStyle(
+      "C",
+      parent=styles["Normal"],
+      fontName="Helvetica",
+      fontSize=8,
+      leading=10,
+      textColor=TEXT_COLOR,
+  )
+  cell_header_style = ParagraphStyle(
+      "CH",
+      parent=styles["Normal"],
+      fontName="Helvetica-Bold",
+      fontSize=8,
+      leading=10,
+      textColor=colors.white,
+  )
+
+  # Header
+  today_str = datetime.now().strftime("%d.%m.%Y")
+  story.append(Paragraph("SEO & Performance Kundenreport", title_style))
+  story.append(
+      Paragraph(
+          f"Website: <b>{domain}</b> &nbsp;|&nbsp; Stand: {today_str}",
+          subtitle_style,
+      )
+  )
+  story.append(
+      HRFlowable(
+          width="100%", thickness=1.5, color=ACCENT_COLOR, spaceAfter=10
+      )
+  )
+
+  # Section 1: KPI Summary
+  story.append(
+      Paragraph(
+          "📈 Performance Overview (30 Tage vs. Vorjahr)", section_heading
+      )
+  )
+  c_clicks, p_clicks, c_impr, p_impr = gsc_yoy_data
+  c_vis, p_vis, c_pag, p_pag, pages_per_vis_curr, pages_per_vis_prev = (
+      ahrefs_analytics_data
+  )
+
+  kpi_data = [[
+      Paragraph(
+          f"<b>Organische Klicks (GSC)</b><br/><font size=10"
+          f" color='#0F172A'><b>{int(c_clicks):,}</b></font><br/><font"
+          f" color='#16A34A'>{calc_pct_str(c_clicks, p_clicks)}</font>",
+          cell_style,
+      ),
+      Paragraph(
+          f"<b>Impressionen (GSC)</b><br/><font size=10"
+          f" color='#0F172A'><b>{int(c_impr):,}</b></font><br/><font"
+          f" color='#16A34A'>{calc_pct_str(c_impr, p_impr)}</font>",
+          cell_style,
+      ),
+      Paragraph(
+          f"<b>Besucher (Ahrefs)</b><br/><font size=10"
+          f" color='#0F172A'><b>{int(c_vis):,}</b></font><br/><font"
+          f" color='#16A34A'>{calc_pct_str(c_vis, p_vis)}</font>",
+          cell_style,
+      ),
+      Paragraph(
+          f"<b>Ø Seiten / Besucher</b><br/><font size=10"
+          f" color='#0F172A'><b>{pages_per_vis_curr:.2f}</b></font><br/><font"
+          f" color='#D97706'>{calc_pct_str(pages_per_vis_curr, pages_per_vis_prev)}</font>",
+          cell_style,
+      ),
+  ]]
+  kpi_table = Table(kpi_data, colWidths=[130, 130, 130, 133])
+  kpi_table.setStyle(
+      TableStyle([
+          ("BACKGROUND", (0, 0), (-1, -1), LIGHT_BG),
+          ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#CBD5E1")),
+          ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+          ("PADDING", (0, 0), (-1, -1), 5),
+          ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+      ])
+  )
+  story.append(kpi_table)
+  story.append(Spacer(1, 8))
+
+  # Section 2: Visual Charts
+  story.append(
+      Paragraph("📊 Visuelle Trend- & Keyword-Analyse", section_heading)
+  )
+  gsc_img = Image(generate_gsc_chart_bytes(df_trend), width=320, height=110)
+  kw_img = Image(generate_kw_donut_bytes(df_display), width=190, height=110)
+
+  chart_table = Table([[gsc_img, kw_img]], colWidths=[330, 193])
+  chart_table.setStyle(
+      TableStyle([
+          ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+          ("LEFTPADDING", (0, 0), (-1, -1), 0),
+          ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+      ])
+  )
+  story.append(chart_table)
+  story.append(Spacer(1, 8))
+
+  # Section 3: Live Keywords Table
+  story.append(
+      Paragraph(
+          f"🏆 Top Keyword Rankings ({device_choice.capitalize()})",
+          section_heading,
+      )
+  )
+  kw_headers = [
+      Paragraph("Keyword", cell_header_style),
+      Paragraph("Position", cell_header_style),
+      Paragraph("Trend", cell_header_style),
+      Paragraph("Volumen", cell_header_style),
+      Paragraph("Traffic", cell_header_style),
+      Paragraph("KD", cell_header_style),
+  ]
+  kw_table_data = [kw_headers]
+
+  for _, row in df_display.head(20).iterrows():
+    kw_table_data.append([
+        Paragraph(f"<b>{row['Keyword']}</b>", cell_style),
+        Paragraph(str(row["Position"]), cell_style),
+        Paragraph(str(row["Trend"]), cell_style),
+        Paragraph(f"{int(row['Suchvolumen']):,}", cell_style),
+        Paragraph(f"{int(row['Traffic']):,}", cell_style),
+        Paragraph(str(int(row["KD"])), cell_style),
+    ])
+
+  kw_table = Table(kw_table_data, colWidths=[183, 60, 70, 70, 70, 70])
+  kw_table.setStyle(
+      TableStyle([
+          ("BACKGROUND", (0, 0), (-1, 0), PRIMARY_COLOR),
+          ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_BG]),
+          ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+          ("PADDING", (0, 0), (-1, -1), 4),
+          ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+      ])
+  )
+  story.append(kw_table)
+
+  doc.build(story)
+  pdf_buffer.seek(0)
+  return pdf_buffer
 
 
 # ==========================================
@@ -285,10 +597,6 @@ with tab2:
             "Ø Seiten / Besucher",
             f"{pages_per_vis_curr:.2f}",
             delta=calc_pct_str(pages_per_vis_curr, pages_per_vis_prev),
-            help=(
-                "Zeigt an, wie viele Seiten ein Besucher im Schnitt aufruft."
-                " Der Prozentwert vergleicht mit dem Vorjahr."
-            ),
         )
         col_c.metric(
             "Seitenaufrufe",
@@ -352,15 +660,12 @@ with tab2:
 
           if not df_rank.empty:
 
-            # KORRIGIERTE TREND-LOGIK FÜR SEO
             def format_trend_arrow(diff):
               if pd.isna(diff) or diff == 0:
                 return "➖ 0"
               elif diff < 0:
-                # Negativer Diff in Ahrefs = Rang VERBESSERT (z.B. von 2 auf 1 = diff -1)
                 return f"🟢 +{abs(int(diff))}"
               else:
-                # Positiver Diff in Ahrefs = Rang VERSCHLECHTERT (z.B. von 9 auf 16 = diff +7)
                 return f"🔴 -{abs(int(diff))}"
 
             df_display = pd.DataFrame()
@@ -387,15 +692,44 @@ with tab2:
 
             top10_count = len(df_display[df_display["Position"] <= 10])
 
-            st.markdown(
-                "### 🏆 Rank Tracker Keywords (Nach Position sortiert)"
-            )
+            st.markdown("### 🏆 Rank Tracker Keywords")
             st.metric(
                 "TRACKED KEYWORDS IN DEN TOP 10", f"{top10_count} Keywords"
             )
 
             st.dataframe(df_display, use_container_width=True, hide_index=True)
             st.success(f"{len(df_display)} gerankte Keywords geladen!")
+
+            st.divider()
+
+            # --- KUNDEN PDF GENERIEREN UND HERUNTERLADEN ---
+            gsc_yoy_data = (c_clicks, p_clicks, c_impr, p_impr)
+            ahrefs_analytics_data = (
+                c_vis,
+                p_vis,
+                c_pag,
+                p_pag,
+                pages_per_vis_curr,
+                pages_per_vis_prev,
+            )
+
+            pdf_bytes = build_live_pdf_report(
+                CLIENT_DOMAIN,
+                gsc_yoy_data,
+                ahrefs_analytics_data,
+                df_display,
+                df_trend,
+                device_choice,
+            )
+
+            st.markdown("### 📄 PDF-Export für Kunden")
+            st.download_button(
+                label="📥 Als PDF-Kundenreport herunterladen",
+                data=pdf_bytes,
+                file_name=f"SEO_Report_{CLIENT_DOMAIN.replace('https://', '').replace('/', '')}_{datetime.now().strftime('%Y%m%d')}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
           else:
             st.warning("Keine gerankten Keywords mit gültiger Position gefunden.")
         else:
