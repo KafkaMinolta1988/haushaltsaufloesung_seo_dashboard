@@ -214,8 +214,8 @@ def build_live_pdf_report(
       fontSize=12,
       leading=16,
       textColor=PRIMARY_COLOR,
-      spaceBefore=14,
-      spaceAfter=8,
+      spaceBefore=18,
+      spaceAfter=10,
   )
 
   cell_style = ParagraphStyle(
@@ -299,7 +299,6 @@ def build_live_pdf_report(
       ])
   )
   story.append(kpi_table)
-  story.append(Spacer(1, 10))
 
   # Section 2: Visual Charts
   story.append(
@@ -317,9 +316,8 @@ def build_live_pdf_report(
       ])
   )
   story.append(chart_table)
-  story.append(Spacer(1, 10))
 
-  # Section 3: Keyword Rankings (STARTET DIREKT AUF SEITE 1 & FLIESST WEITER)
+  # Section 3: Keyword Rankings (OHNE SEITENUMBRUCH - STARTET DIREKT AUF SEITE 1)
   story.append(
       Paragraph(
           f"Top Keyword Rankings ({device_choice.capitalize()})",
@@ -337,7 +335,7 @@ def build_live_pdf_report(
   ]
   kw_table_data = [kw_headers]
 
-  for _, row in df_display.head(40).iterrows():
+  for _, row in df_display.head(60).iterrows():
     kw_table_data.append([
         Paragraph(f"<b>{row['Keyword']}</b>", cell_style),
         Paragraph(str(row["Position"]), cell_style),
@@ -347,6 +345,7 @@ def build_live_pdf_report(
         Paragraph(str(int(row["KD"])), cell_style),
     ])
 
+  # repeatRows=1 sorgt dafür, dass die Kopfzeile auf Seite 2 mitgedruckt wird
   kw_table = Table(
       kw_table_data, colWidths=[183, 60, 70, 70, 70, 70], repeatRows=1
   )
@@ -639,7 +638,7 @@ with tab2:
           "date": today_str,
           "date_compared": prev_month_str,
           "device": device_choice,
-          "limit": 100,
+          "limit": 1000,          # <--- HIER IST DAS KORRIGIERTE LIMIT (1000 statt 100)
           "order_by": "traffic:desc",
           "select": ahrefs_exact_select,
       }
@@ -658,45 +657,36 @@ with tab2:
         if keywords_raw:
           df_rank = pd.DataFrame(keywords_raw)
 
-          # Nur Keywords mit aktiver Position behalten
-          df_rank = df_rank[df_rank["position"].notna()].copy()
+          # Fehlerresistenter Aufbau des DataFrames (verhindert Indizierungs-Fehler)
+          df_rank["position"] = pd.to_numeric(df_rank.get("position"), errors="coerce")
+          df_rank = df_rank.dropna(subset=["position"]).copy()
 
-          # Nach Position sortieren (1, 2, 3...)
-          df_rank["position"] = df_rank["position"].astype(int)
-          df_rank = df_rank.sort_values(by="position", ascending=True)
+          df_display = pd.DataFrame()
+          df_display["Keyword"] = df_rank.get("keyword", "-").fillna("-")
+          df_display["Position"] = df_rank["position"].astype(int)
 
-          if not df_rank.empty:
-
-            def format_trend_arrow(diff):
-              if pd.isna(diff) or diff == 0:
+          def format_trend_arrow(diff):
+            try:
+              d = float(diff)
+              if pd.isna(d) or d == 0:
                 return "➖ 0"
-              elif diff < 0:
-                return f"🟢 +{abs(int(diff))}"
+              elif d < 0:
+                return f"🟢 +{abs(int(d))}"
               else:
-                return f"🔴 -{abs(int(diff))}"
+                return f"🔴 -{abs(int(d))}"
+            except:
+              return "➖ 0"
 
-            df_display = pd.DataFrame()
-            df_display["Keyword"] = df_rank.get("keyword", "")
-            df_display["Position"] = df_rank["position"]
+          df_display["Trend"] = df_rank.get("position_diff", pd.Series([0]*len(df_rank))).apply(format_trend_arrow)
+          df_display["Suchvolumen"] = pd.to_numeric(df_rank.get("volume", 0), errors="coerce").fillna(0).astype(int)
+          df_display["Traffic"] = pd.to_numeric(df_rank.get("traffic", 0), errors="coerce").fillna(0).astype(int)
+          df_display["KD"] = pd.to_numeric(df_rank.get("keyword_difficulty", 0), errors="coerce").fillna(0).astype(int)
+          df_display["URL"] = df_rank.get("url", "-").fillna("-")
 
-            if "position_diff" in df_rank.columns:
-              df_display["Trend"] = df_rank["position_diff"].apply(
-                  format_trend_arrow
-              )
-            else:
-              df_display["Trend"] = "➖ 0"
+          # Sicherstellen, dass das DataFrame direkt hier sauber sortiert wird
+          df_display = df_display.sort_values(by=["Position", "Suchvolumen"], ascending=[True, False]).reset_index(drop=True)
 
-            df_display["Suchvolumen"] = (
-                df_rank.get("volume", 0).fillna(0).astype(int)
-            )
-            df_display["Traffic"] = (
-                df_rank.get("traffic", 0).fillna(0).astype(int)
-            )
-            df_display["KD"] = (
-                df_rank.get("keyword_difficulty", 0).fillna(0).astype(int)
-            )
-            df_display["URL"] = df_rank.get("url", "").fillna("-")
-
+          if not df_display.empty:
             top10_count = len(df_display[df_display["Position"] <= 10])
 
             st.markdown("### 🏆 Rank Tracker Keywords")
