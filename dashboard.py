@@ -17,7 +17,6 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import (
     HRFlowable,
     Image,
-    PageBreak,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -67,7 +66,7 @@ def calc_pct_str(curr, prev):
 
 # --- PDF CHART 1: GSC Klicks Verlaufs-Chart ---
 def generate_gsc_chart_bytes(df_trend):
-  fig, ax = plt.subplots(figsize=(6.0, 2.5), dpi=200)
+  fig, ax = plt.subplots(figsize=(5.8, 2.2), dpi=200)
   if df_trend is not None and not df_trend.empty:
     ax.plot(
         df_trend["date"],
@@ -92,7 +91,7 @@ def generate_gsc_chart_bytes(df_trend):
       fontsize=9,
       fontweight="bold",
       color="#0F172A",
-      pad=10,
+      pad=8,
   )
 
   plt.tight_layout()
@@ -103,66 +102,56 @@ def generate_gsc_chart_bytes(df_trend):
   return buf
 
 
-# --- PDF CHART 2: Exakt rundes Donut-Chart ---
-def generate_kw_donut_bytes(df_display):
+# --- PDF CHART 2: Aufgeräumtes Balkendiagramm (Horizontal) ---
+def generate_kw_bar_bytes(df_display):
   p1_3 = len(df_display[df_display["Position"].between(1, 3)])
   p4_10 = len(df_display[df_display["Position"].between(4, 10)])
   p11_20 = len(df_display[df_display["Position"].between(11, 20)])
   p21_plus = len(df_display[df_display["Position"] > 20])
 
-  labels = [
-      f"Top 1-3 ({p1_3})",
-      f"Top 4-10 ({p4_10})",
-      f"Top 11-20 ({p11_20})",
-      f"21+ ({p21_plus})",
-  ]
-  sizes = [p1_3, p4_10, p11_20, p21_plus]
-  non_zeros = [
-      (l, s, c)
-      for l, s, c in zip(
-          labels, sizes, ["#16A34A", "#2563EB", "#F59E0B", "#94A3B8"]
-      )
-      if s > 0
-  ]
+  categories = ["Top 1-3", "Top 4-10", "Top 11-20", "21+"]
+  counts = [p1_3, p4_10, p11_20, p21_plus]
+  colors_list = ["#16A34A", "#2563EB", "#F59E0B", "#94A3B8"]
 
-  # QUADRATISCHE FIGSIZE + EQUAL ASPECT = ERZWINGT 100% RUNDEN KREIS
-  fig, ax = plt.subplots(figsize=(2.6, 2.6), dpi=200)
-  ax.set_aspect("equal")
+  fig, ax = plt.subplots(figsize=(2.8, 2.2), dpi=200)
 
-  if non_zeros:
-    nz_labels, nz_sizes, nz_colors = zip(*non_zeros)
-    wedges, texts, autotexts = ax.pie(
-        nz_sizes,
-        labels=nz_labels,
-        colors=nz_colors,
-        autopct="%1.0f%%",
-        startangle=90,
-        pctdistance=0.72,
-        textprops=dict(color="#1E293B", fontsize=7),
-        wedgeprops=dict(width=0.38, edgecolor="white", linewidth=1.5),
-    )
-    for autotext in autotexts:
-      autotext.set_color("white")
-      autotext.set_fontsize(7.5)
-      autotext.set_weight("bold")
-  else:
+  # Umkehren, damit "Top 1-3" ganz oben im Balkendiagramm steht
+  bars = ax.barh(
+      categories[::-1], counts[::-1], color=colors_list[::-1], height=0.55
+  )
+
+  # Zahlenwerte direkt neben die Balken schreiben
+  max_val = max(counts) if max(counts) > 0 else 1
+  for bar in bars:
+    width = bar.get_width()
     ax.text(
-        0.5,
-        0.5,
-        "Keine KW Daten",
-        ha="center",
+        width + (max_val * 0.05),
+        bar.get_y() + bar.get_height() / 2,
+        f"{int(width)}",
         va="center",
+        ha="left",
         fontsize=8,
-        color="#64748B",
+        fontweight="bold",
+        color="#0F172A",
     )
 
+  ax.set_facecolor("#F8FAFC")
+  fig.patch.set_facecolor("#ffffff")
+  ax.spines["top"].set_visible(False)
+  ax.spines["right"].set_visible(False)
+  ax.spines["bottom"].set_visible(False)
+  ax.spines["left"].set_color("#CBD5E1")
+  ax.xaxis.set_visible(False)
+  ax.tick_params(axis="y", colors="#0F172A", labelsize=8)
+  ax.set_xlim(0, max_val * 1.3)
   ax.set_title(
       "Keyword-Verteilung",
       fontsize=9,
       fontweight="bold",
       color="#0F172A",
-      pad=10,
+      pad=8,
   )
+
   plt.tight_layout()
   buf = io.BytesIO()
   plt.savefig(buf, format="png", dpi=200, bbox_inches="tight")
@@ -218,7 +207,6 @@ def build_live_pdf_report(
       spaceAfter=12,
   )
 
-  # MEHR ABSTAND VOR UND NACH DEN ÜBERSCHRIFTEN
   section_heading = ParagraphStyle(
       "SH",
       parent=styles["Heading2"],
@@ -226,8 +214,8 @@ def build_live_pdf_report(
       fontSize=12,
       leading=16,
       textColor=PRIMARY_COLOR,
-      spaceBefore=16,
-      spaceAfter=10,
+      spaceBefore=14,
+      spaceAfter=8,
   )
 
   cell_style = ParagraphStyle(
@@ -248,7 +236,7 @@ def build_live_pdf_report(
       textColor=colors.white,
   )
 
-  # ================= SEITE 1: EXECUTIVE DASHBOARD =================
+  # Header
   today_str = datetime.now().strftime("%d.%m.%Y")
   story.append(Paragraph("SEO & Performance Kundenreport", title_style))
   story.append(
@@ -259,7 +247,7 @@ def build_live_pdf_report(
   )
   story.append(
       HRFlowable(
-          width="100%", thickness=1.5, color=ACCENT_COLOR, spaceAfter=15
+          width="100%", thickness=1.5, color=ACCENT_COLOR, spaceAfter=12
       )
   )
 
@@ -311,20 +299,16 @@ def build_live_pdf_report(
       ])
   )
   story.append(kpi_table)
-
-  # MEHR ABSTAND ZWISCHEN DEN SEKTIONEN
-  story.append(Spacer(1, 18))
+  story.append(Spacer(1, 10))
 
   # Section 2: Visual Charts
   story.append(
       Paragraph("Visuelle Trend- & Keyword-Analyse", section_heading)
   )
-  gsc_img = Image(generate_gsc_chart_bytes(df_trend), width=325, height=135)
+  gsc_img = Image(generate_gsc_chart_bytes(df_trend), width=320, height=120)
+  kw_img = Image(generate_kw_bar_bytes(df_display), width=185, height=120)
 
-  # QUADRATISCHER RENDER FÜR DEUTLICH RUNDEN CIRCLE
-  kw_img = Image(generate_kw_donut_bytes(df_display), width=135, height=135)
-
-  chart_table = Table([[gsc_img, kw_img]], colWidths=[335, 188])
+  chart_table = Table([[gsc_img, kw_img]], colWidths=[325, 198])
   chart_table.setStyle(
       TableStyle([
           ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
@@ -333,21 +317,13 @@ def build_live_pdf_report(
       ])
   )
   story.append(chart_table)
+  story.append(Spacer(1, 10))
 
-  # ================= SEITE 2: DETALLIERTE KEYWORD RANKINGS =================
-  story.append(PageBreak())
-
+  # Section 3: Keyword Rankings (STARTET DIREKT AUF SEITE 1 & FLIESST WEITER)
   story.append(
       Paragraph(
           f"Top Keyword Rankings ({device_choice.capitalize()})",
           section_heading,
-      )
-  )
-  story.append(
-      Paragraph(
-          "Aktuelle Platzierungen in den Suchergebnissen inkl. Trend und"
-          " Suchvolumen.",
-          subtitle_style,
       )
   )
 
@@ -361,7 +337,6 @@ def build_live_pdf_report(
   ]
   kw_table_data = [kw_headers]
 
-  # ZUM FÜLLEN VON SEITE 2 NEHMEN WIR JETZT BIS ZU 40 KEYWORDS MIT
   for _, row in df_display.head(40).iterrows():
     kw_table_data.append([
         Paragraph(f"<b>{row['Keyword']}</b>", cell_style),
@@ -372,7 +347,9 @@ def build_live_pdf_report(
         Paragraph(str(int(row["KD"])), cell_style),
     ])
 
-  kw_table = Table(kw_table_data, colWidths=[183, 60, 70, 70, 70, 70])
+  kw_table = Table(
+      kw_table_data, colWidths=[183, 60, 70, 70, 70, 70], repeatRows=1
+  )
   kw_table.setStyle(
       TableStyle([
           ("BACKGROUND", (0, 0), (-1, 0), PRIMARY_COLOR),
