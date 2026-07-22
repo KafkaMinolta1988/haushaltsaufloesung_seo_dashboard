@@ -1,6 +1,8 @@
 import streamlit as st
 import requests
 import json
+import pandas as pd
+import plotly.express as px
 from datetime import datetime, timedelta
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -28,99 +30,131 @@ if eingabe != APP_PASSWORD:
     st.stop()
 
 # ==========================================
-# 3. DASHBOARD (BEIDE APIS INTEGRATED)
+# 3. INTERAKTIVES PERFORMANCE-DASHBOARD
 # ==========================================
 st.empty()
-st.success("Erfolgreich eingeloggt!")
-st.header(f"📈 SEO & Performance Dashboard: {CLIENT_DOMAIN}")
+st.title("Performance-Dashboard")
+st.caption(f"Domain: {CLIENT_DOMAIN}")
 
-# TABS FÜR DIE SAUBERE TRENNUNG
-tab1, tab2 = st.tabs(["📊 Google Search Console", "🔗 Ahrefs Metriken"])
+# GSC Daten automatisch im Hintergrund laden
+@st.cache_data(ttl=3600)  # Speichert Daten für 1 Std im Zwischenspeicher
+def load_gsc_data():
+    creds_dict = json.loads(GSC_JSON_RAW)
+    credentials = service_account.Credentials.from_service_account_info(
+        creds_dict,
+        scopes=["https://www.googleapis.com/auth/webmasters.readonly"]
+    )
+    service = build('searchconsole', 'v1', credentials=credentials)
 
-# ------------------------------------------
-# TAB 1: GOOGLE SEARCH CONSOLE
-# ------------------------------------------
-with tab1:
-    st.subheader("Performance der letzten 30 Tage (GSC)")
+    # Zeitraum: Letzte 90 Tage für schöne Verläufe
+    end_date = (datetime.now() - timedelta(days=2)).strftime('%Y-%m-%d')
+    start_date = (datetime.now() - timedelta(days=92)).strftime('%Y-%m-%d')
+
+    request_body = {
+        'startDate': start_date,
+        'endDate': end_date,
+        'dimensions': ['date']
+    }
+
+    response = service.searchanalytics().query(
+        siteUrl=CLIENT_DOMAIN,
+        body=request_body
+    ).execute()
+
+    rows = response.get('rows', [])
+    if not rows:
+        return None
+
+    df = pd.DataFrame(rows)
+    df['date'] = pd.to_datetime(df['keys'].str[0])
+    df = df.sort_values('date')
+    df['position'] = df['position'].round(1)
+    return df
+
+df = load_gsc_data()
+
+if df is not None:
+    # ------------------------------------------
+    # METRIK-AUSWAHL DROPDOWN
+    # ------------------------------------------
+    metrik_option = st.selectbox(
+        "Metrik auswählen",
+        options=["Durchschnittliche Position (Ranking)", "Organische Klicks", "Impressionen"]
+    )
+
+    # Spaltenzuordnung je nach Auswahl
+    if "Position" in metrik_option:
+        column_name = 'position'
+        label_name = 'Durchschnittliche Position'
+        invert_y = True  # Platz 1 gehört nach oben!
+    elif "Klicks" in metrik_option:
+        column_name = 'clicks'
+        label_name = 'Klicks'
+        invert_y = False
+    else:
+        column_name = 'impressions'
+        label_name = 'Impressionen'
+        invert_y = False
+
+    # ------------------------------------------
+    # KPI BERECHNUNGEN (Aktuell vs. Trend)
+    # ------------------------------------------
+    aktueller_wert = df[column_name].iloc[-1]
+    start_wert = df[column_name].iloc[0]
+
+    # Trend in Prozent berechnen
+    if start_wert != 0:
+        if column_name == 'position':
+            # Bei Position bedeutet ein kleinerer Wert eine BESSERE Performance!
+            trend_pct = ((start_wert - aktueller_wert) / start_wert) * 100
+        else:
+            trend_pct = ((aktueller_wert - start_wert) / start_wert) * 100
+    else:
+        trend_pct = 0.0
+
+    # ------------------------------------------
+    # INTERAKTIVES PLOTLY DIAGRAMM BUILDEN
+    # ------------------------------------------
+    fig = px.line(
+        df,
+        x='date',
+        y=column_name,
+        markers=True,
+        title=f"{label_name} über die Zeit"
+    )
+
+    # Design anpassen (Klinisches Blau / Schlicht)
+    fig.update_traces(
+        line_color='#4A90E2',
+        line_width=3,
+        marker=dict(size=8, color='#4A90E2')
+    )
     
-    if st.button("GSC Daten jetzt live abrufen"):
-        with st.spinner("Verbinde mit Google Search Console..."):
-            try:
-                # Login bei Google über die Secrets (sauber eingerückt)
-                creds_dict = json.loads(GSC_JSON_RAW)
-                credentials = service_account.Credentials.from_service_account_info(
-                    creds_dict,
-                    scopes=["https://www.googleapis.com/auth/webmasters.readonly"]
-                )
-                service = build('searchconsole', 'v1', credentials=credentials)
+    fig.update_layout(
+        xaxis_title="Datum",
+        yaxis_title=label_name,
+        template="plotly_white",
+        hovermode="x unified"
+    )
 
-                # Zeitraum berechnen (GSC hat immer ca. 2 Tage Datenverzug)
-                end_date = (datetime.now() - timedelta(days=2)).strftime('%Y-%m-%d')
-                start_date = (datetime.now() - timedelta(days=32)).strftime('%Y-%m-%d')
+    # Falls Ranking ausgewählt: Y-Achse umdrehen (Platz 1 oben)
+    if invert_y:
+        fig.update_yaxes(autorange="reversed")
 
-                # Abfrage-Paket schnüren
-                request_body = {
-                    'startDate': start_date,
-                    'endDate': end_date,
-                    'dimensions': ['date']
-                }
+    # Diagramm in Streamlit rendern
+    st.plotly_chart(fig, use_container_width=True)
 
-                # Abfrage an Google senden
-                response = service.searchanalytics().query(
-                    siteUrl=CLIENT_DOMAIN,
-                    body=request_body
-                ).execute()
+    # ------------------------------------------
+    # KPI-METRIKEN UNTER DEM GRAPHEN
+    # ------------------------------------------
+    col1, col2 = st.columns(2)
+    
+    if column_name == 'position':
+        col1.metric("AKTUELLER RANKING-DURCHSCHNITT", f"{aktueller_wert:.1f}")
+    else:
+        col1.metric("AKTUELLER WERT", f"{int(aktueller_wert):,}".replace(",", "."))
 
-                rows = response.get('rows', [])
+    col2.metric("PERFORMANCE-TREND", f"{trend_pct:+.1f}%")
 
-                if rows:
-                    # Kennzahlen aufsummieren und berechnen
-                    total_clicks = sum(row['clicks'] for row in rows)
-                    total_impressions = sum(row['impressions'] for row in rows)
-                    avg_ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0
-                    avg_position = sum(row['position'] for row in rows) / len(rows)
-
-                    # KPI Boxen anzeigen
-                    col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("Klicks (30 Tage)", f"{total_clicks:,}".replace(",", "."))
-                    col2.metric("Impressionen", f"{total_impressions:,}".replace(",", "."))
-                    col3.metric("Ø CTR", f"{avg_ctr:.2f}%")
-                    col4.metric("Ø Position", f"{avg_position:.1f}")
-
-                    st.success("GSC-Daten erfolgreich geladen!")
-                else:
-                    st.warning("Keine Daten gefunden. Prüfe, ob die 'client_domain' in den Secrets exakt mit der GSC-Property übereinstimmt!")
-
-            except Exception as e:
-                st.error(f"Fehler bei der Google API: {e}")
-
-# ------------------------------------------
-# TAB 2: AHREFS METRIKEN
-# ------------------------------------------
-with tab2:
-    st.subheader("Ahrefs Live-Metriken")
-    if st.button("Ahrefs Daten jetzt live abrufen"):
-        with st.spinner("Verbinde mit Ahrefs..."):
-            url = "https://api.ahrefs.com/v3/site-explorer/metrics"
-            headers = {
-                "Authorization": f"Bearer {AHREFS_KEY}",
-                "Accept": "application/json"
-            }
-            params = {
-                "select": "domain_rating,live_backlinks",
-                "target": CLIENT_DOMAIN,
-                "date": "2026-07-20"
-            }
-            
-            antwort = requests.get(url, headers=headers, params=params)
-            if antwort.status_code == 200:
-                daten = antwort.json()
-                dr = daten["metrics"].get("domain_rating", "Keine Daten")
-                backlinks = daten["metrics"].get("live_backlinks", "Keine Daten")
-                
-                col1, col2 = st.columns(2)
-                col1.metric("Domain Rating (DR)", dr)
-                col2.metric("Live Backlinks", backlinks)
-                st.success("Ahrefs-Daten erfolgreich geladen!")
-            else:
-                st.error(f"Fehler! Ahrefs meldet: {antwort.text}")
+else:
+    st.warning("Keine Daten in der Google Search Console gefunden. Prüfe die URL-Schreibweise in den Secrets.")
