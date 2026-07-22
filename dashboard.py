@@ -47,13 +47,13 @@ with tab1:
     if st.button("GSC Daten jetzt live abrufen"):
         with st.spinner("Verbinde mit Google Search Console..."):
             try:
-                # Login bei Google über die Secrets
-                creds_dict = dict(GSC_SECRETS)
-                credentials = service_account.Credentials.from_service_account_info(
-                    creds_dict,
-                    scopes=["https://www.googleapis.com/auth/webmasters.readonly"]
-                )
-                service = build('searchconsole', 'v1', credentials=credentials)
+               # Login bei Google über die Secrets
+creds_dict = json.loads(GSC_JSON_RAW)  # Wandelt den Text aus den Secrets wieder in JSON um
+credentials = service_account.Credentials.from_service_account_info(
+    creds_dict,
+    scopes=["https://www.googleapis.com/auth/webmasters.readonly"]
+)
+service = build('searchconsole', 'v1', credentials=credentials)
 
                 # Zeitraum berechnen (GSC hat immer ca. 2 Tage Datenverzug)
                 end_date = (datetime.now() - timedelta(days=2)).strftime('%Y-%m-%d')
