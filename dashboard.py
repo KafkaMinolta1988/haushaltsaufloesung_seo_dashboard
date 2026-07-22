@@ -14,9 +14,10 @@ try:
     CLIENT_DOMAIN = st.secrets["client_domain"]
     APP_PASSWORD = st.secrets["app_password"]
     AHREFS_KEY = st.secrets["ahrefs_api_key"]
+    AHREFS_PROJECT_ID = st.secrets["ahrefs_project_id"]
     GSC_JSON_RAW = st.secrets["gsc_json"]
-except KeyError:
-    st.error("Der Tresor (Secrets) ist unvollständig. Bitte überprüfe deine Secrets in Streamlit!")
+except KeyError as e:
+    st.error(f"Fehler im Tresor (Secrets): Der Schlüssel '{e}' fehlt!")
     st.stop()
 
 # ==========================================
@@ -30,15 +31,20 @@ if eingabe != APP_PASSWORD:
     st.stop()
 
 # ==========================================
-# 3. INTERAKTIVES PERFORMANCE-DASHBOARD
+# 3. INTERAKTIVES DASHBOARD
 # ==========================================
 st.empty()
 st.title("Performance-Dashboard")
 st.caption(f"Domain: {CLIENT_DOMAIN}")
 
-# GSC Daten automatisch im Hintergrund laden
-@st.cache_data(ttl=3600)  # Speichert Daten für 1 Std im Zwischenspeicher
-def load_gsc_data():
+# TABS FÜR DIE UMSCHALTUNG
+tab1, tab2 = st.tabs(["📊 Google Search Console (Trend)", "🎯 Ahrefs Analytics & Keywords"])
+
+# ------------------------------------------
+# TAB 1: GOOGLE SEARCH CONSOLE TREND
+# ------------------------------------------
+@st.cache_data(ttl=3600)
+def load_gsc_timeseries():
     creds_dict = json.loads(GSC_JSON_RAW)
     credentials = service_account.Credentials.from_service_account_info(
         creds_dict,
@@ -46,7 +52,6 @@ def load_gsc_data():
     )
     service = build('searchconsole', 'v1', credentials=credentials)
 
-    # Zeitraum: Letzte 90 Tage für schöne Verläufe
     end_date = (datetime.now() - timedelta(days=2)).strftime('%Y-%m-%d')
     start_date = (datetime.now() - timedelta(days=92)).strftime('%Y-%m-%d')
 
@@ -71,90 +76,152 @@ def load_gsc_data():
     df['position'] = df['position'].round(1)
     return df
 
-df = load_gsc_data()
+with tab1:
+    df_trend = load_gsc_timeseries()
+    if df_trend is not None:
+        metrik_option = st.selectbox(
+            "Metrik auswählen",
+            options=["Durchschnittliche Position (Ranking)", "Organische Klicks", "Impressionen"]
+        )
 
-if df is not None:
-    # ------------------------------------------
-    # METRIK-AUSWAHL DROPDOWN
-    # ------------------------------------------
-    metrik_option = st.selectbox(
-        "Metrik auswählen",
-        options=["Durchschnittliche Position (Ranking)", "Organische Klicks", "Impressionen"]
-    )
-
-    # Spaltenzuordnung je nach Auswahl
-    if "Position" in metrik_option:
-        column_name = 'position'
-        label_name = 'Durchschnittliche Position'
-        invert_y = True  # Platz 1 gehört nach oben!
-    elif "Klicks" in metrik_option:
-        column_name = 'clicks'
-        label_name = 'Klicks'
-        invert_y = False
-    else:
-        column_name = 'impressions'
-        label_name = 'Impressionen'
-        invert_y = False
-
-    # ------------------------------------------
-    # KPI BERECHNUNGEN (Aktuell vs. Trend)
-    # ------------------------------------------
-    aktueller_wert = df[column_name].iloc[-1]
-    start_wert = df[column_name].iloc[0]
-
-    # Trend in Prozent berechnen
-    if start_wert != 0:
-        if column_name == 'position':
-            # Bei Position bedeutet ein kleinerer Wert eine BESSERE Performance!
-            trend_pct = ((start_wert - aktueller_wert) / start_wert) * 100
+        if "Position" in metrik_option:
+            column_name = 'position'
+            label_name = 'Durchschnittliche Position'
+            invert_y = True
+        elif "Klicks" in metrik_option:
+            column_name = 'clicks'
+            label_name = 'Klicks'
+            invert_y = False
         else:
-            trend_pct = ((aktueller_wert - start_wert) / start_wert) * 100
-    else:
-        trend_pct = 0.0
+            column_name = 'impressions'
+            label_name = 'Impressionen'
+            invert_y = False
 
-    # ------------------------------------------
-    # INTERAKTIVES PLOTLY DIAGRAMM BUILDEN
-    # ------------------------------------------
-    fig = px.line(
-        df,
-        x='date',
-        y=column_name,
-        markers=True,
-        title=f"{label_name} über die Zeit"
-    )
+        fig = px.line(
+            df_trend, x='date', y=column_name, markers=True,
+            title=f"{label_name} über die Zeit"
+        )
+        fig.update_traces(line_color='#4A90E2', line_width=3, marker=dict(size=8, color='#4A90E2'))
+        fig.update_layout(xaxis_title="Datum", yaxis_title=label_name, template="plotly_white", hovermode="x unified")
+        if invert_y:
+            fig.update_yaxes(autorange="reversed")
 
-    # Design anpassen (Klinisches Blau / Schlicht)
-    fig.update_traces(
-        line_color='#4A90E2',
-        line_width=3,
-        marker=dict(size=8, color='#4A90E2')
-    )
+        st.plotly_chart(fig, use_container_width=True)
+
+        aktueller_wert = df_trend[column_name].iloc[-1]
+        start_wert = df_trend[column_name].iloc[0]
+        trend_pct = ((start_wert - aktueller_wert) / start_wert * 100) if column_name == 'position' else ((aktueller_wert - start_wert) / start_wert * 100)
+
+        col1, col2 = st.columns(2)
+        if column_name == 'position':
+            col1.metric("AKTUELLER RANKING-DURCHSCHNITT", f"{aktueller_wert:.1f}")
+        else:
+            col1.metric("AKTUELLER WERT", f"{int(aktueller_wert):,}".replace(",", "."))
+        col2.metric("PERFORMANCE-TREND", f"{trend_pct:+.1f}%")
+
+# ------------------------------------------
+# TAB 2: AHREFS WEB ANALYTICS & RANK TRACKER
+# ------------------------------------------
+with tab2:
+    st.subheader("🎯 Ahrefs Web Analytics & Keywords")
     
-    fig.update_layout(
-        xaxis_title="Datum",
-        yaxis_title=label_name,
-        template="plotly_white",
-        hovermode="x unified"
-    )
+    if st.button("Ahrefs Daten jetzt live abrufen"):
+        headers = {
+            "Authorization": f"Bearer {AHREFS_KEY}",
+            "Accept": "application/json"
+        }
 
-    # Falls Ranking ausgewählt: Y-Achse umdrehen (Platz 1 oben)
-    if invert_y:
-        fig.update_yaxes(autorange="reversed")
+        # --- Teil 1: Organischer Traffic aus Ahrefs Web Analytics ---
+        with st.spinner("Lade organischen Traffic aus Ahrefs Web Analytics..."):
+            # Dynamischer Zeitraum: Letzte 30 Tage im ISO 8601 UTC-Format
+            to_date = datetime.now().strftime('%Y-%m-%dT23:59:59Z')
+            from_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%dT00:00:00Z')
 
-    # Diagramm in Streamlit rendern
-    st.plotly_chart(fig, use_container_width=True)
+            # Filter für organischen Traffic ("source_channel" == "search")
+            where_filter = json.dumps({
+                "and": [
+                    {
+                        "and": [
+                            {"field": "source_channel", "is": ["eq", "search"]}
+                        ]
+                    }
+                ]
+            })
 
-    # ------------------------------------------
-    # KPI-METRIKEN UNTER DEM GRAPHEN
-    # ------------------------------------------
-    col1, col2 = st.columns(2)
-    
-    if column_name == 'position':
-        col1.metric("AKTUELLER RANKING-DURCHSCHNITT", f"{aktueller_wert:.1f}")
-    else:
-        col1.metric("AKTUELLER WERT", f"{int(aktueller_wert):,}".replace(",", "."))
+            analytics_url = "https://api.ahrefs.com/v3/web-analytics/stats"
+            analytics_params = {
+                "from": from_date,
+                "to": to_date,
+                "project_id": AHREFS_PROJECT_ID,
+                "where": where_filter
+            }
 
-    col2.metric("PERFORMANCE-TREND", f"{trend_pct:+.1f}%")
+            res_analytics = requests.get(analytics_url, headers=headers, params=analytics_params)
 
-else:
-    st.warning("Keine Daten in der Google Search Console gefunden. Prüfe die URL-Schreibweise in den Secrets.")
+            if res_analytics.status_code == 200:
+                stats_data = res_analytics.json().get("stats", {})
+                
+                # Einzelne Besucher (Visitors) & Seitenaufrufe auslesen
+                visitors = stats_data.get("visitors", 0)
+                pageviews = stats_data.get("pageviews", 0)
+                sessions = stats_data.get("sessions", 0)
+
+                st.markdown("### 👥 Organischer Traffic (Letzte 30 Tage)")
+                col_a, col_b, col_c = st.columns(3)
+                col_a.metric("Einzelne Besucher (Visitors)", f"{visitors:,}".replace(",", "."))
+                col_b.metric("Sitzungen (Sessions)", f"{sessions:,}".replace(",", "."))
+                col_c.metric("Seitenaufrufe (Pageviews)", f"{pageviews:,}".replace(",", "."))
+            else:
+                st.error(f"Fehler bei Ahrefs Analytics API: {res_analytics.status_code} - {res_analytics.text}")
+
+        st.divider()
+
+        # --- Teil 2: Rank Tracker Keywords ---
+        with st.spinner("Lade Keyword-Rankings aus Ahrefs..."):
+            today_str = datetime.now().strftime('%Y-%m-%d')
+            prev_month_str = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+
+            rank_url = "https://api.ahrefs.com/v3/rank-tracker/overview"
+            rank_params = {
+                "date": today_str,
+                "date_compared": prev_month_str,
+                "device": "desktop",
+                "limit": 100,
+                "order_by": "traffic:desc",
+                "project_id": AHREFS_PROJECT_ID,
+                "select": "keyword,keyword_difficulty,position,position_prev,position_diff,volume,traffic,url"
+            }
+
+            res_rank = requests.get(rank_url, headers=headers, params=rank_params)
+
+            if res_rank.status_code == 200:
+                keywords_raw = res_rank.json().get("overview", [])
+
+                if keywords_raw:
+                    df_rank = pd.DataFrame(keywords_raw)
+
+                    df_display = pd.DataFrame({
+                        "Keyword": df_rank.get("keyword", ""),
+                        "Position": df_rank.get("position", None),
+                        "Veränderung (30T)": df_rank.get("position_diff", 0),
+                        "Suchvolumen": df_rank.get("volume", 0),
+                        "Traffic": df_rank.get("traffic", 0),
+                        "KD": df_rank.get("keyword_difficulty", 0),
+                        "URL": df_rank.get("url", "")
+                    })
+
+                    top10_count = len(df_display[df_display["Position"] <= 10])
+
+                    st.markdown("### 🏆 Rank Tracker Keywords")
+                    st.metric("TRACKED KEYWORDS IN DEN TOP 10", f"{top10_count} Keywords")
+
+                    st.dataframe(
+                        df_display,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    st.success("Ahrefs Daten erfolgreich geladen!")
+                else:
+                    st.warning("Keine Rank Tracker Daten für dieses Projekt gefunden.")
+            else:
+                st.error(f"Fehler bei Ahrefs Rank Tracker API: {res_rank.status_code} - {res_rank.text}")
