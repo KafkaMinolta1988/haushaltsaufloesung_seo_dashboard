@@ -182,11 +182,16 @@ with tab2:
 
         # --- Teil 2: Rank Tracker Keywords ---
         with st.spinner("Lade Keyword-Rankings aus Ahrefs..."):
+            today_str = datetime.now().strftime('%Y-%m-%d')
+            prev_month_str = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+
             rank_url = "https://api.ahrefs.com/v3/rank-tracker/overview"
             
-            # Hier ist das korrigierte 'device': 'desktop'
+            # Hier sind jetzt 'date' und 'date_compared' wieder zwingend enthalten:
             rank_params = {
                 "project_id": AHREFS_PROJECT_ID,
+                "date": today_str,
+                "date_compared": prev_month_str,
                 "device": "desktop",
                 "limit": 100,
                 "order_by": "traffic:desc",
@@ -235,6 +240,6 @@ with tab2:
                     )
                     st.success("Ahrefs Daten erfolgreich geladen!")
                 else:
-                    st.warning("Keine getrackten Keywords im Ahrefs Rank Tracker für dieses Projekt hinterlegt.")
+                    st.warning("Keine getrackten Keywords im Ahrefs Rank Tracker für dieses Projekt gefunden. Prüfe, ob im Ahrefs-Projekt bereits Keywords hinzugefügt wurden.")
             else:
                 st.error(f"Fehler bei Ahrefs Rank Tracker API: {res_rank.status_code} - {res_rank.text}")
