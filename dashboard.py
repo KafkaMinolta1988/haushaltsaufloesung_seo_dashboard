@@ -8,6 +8,15 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 # ==========================================
+# 0. SEITEN-KONFIGURATION
+# ==========================================
+st.set_page_config(
+    page_title="SEO Dashboard",
+    page_icon="📈",
+    layout="wide"
+)
+
+# ==========================================
 # 1. DATEN AUS DEM TRESOR LADEN
 # ==========================================
 try:
@@ -143,6 +152,8 @@ with tab1:
 with tab2:
     st.subheader("🎯 Ahrefs Web Analytics & Keywords")
     
+    device_choice = st.radio("Gerät für Rank Tracker auswählen:", ["desktop", "mobile"], horizontal=True)
+
     if st.button("Ahrefs Daten jetzt live abrufen"):
         headers = {"Authorization": f"Bearer {AHREFS_KEY}", "Accept": "application/json"}
         where_filter = json.dumps({"and": [{"and": [{"field": "source_channel", "is": ["eq", "search"]}]}]})
@@ -187,12 +198,11 @@ with tab2:
 
             rank_url = "https://api.ahrefs.com/v3/rank-tracker/overview"
             
-            # Hier sind jetzt 'date' und 'date_compared' wieder zwingend enthalten:
             rank_params = {
                 "project_id": AHREFS_PROJECT_ID,
                 "date": today_str,
                 "date_compared": prev_month_str,
-                "device": "desktop",
+                "device": device_choice,
                 "limit": 100,
                 "order_by": "traffic:desc",
                 "select": "keyword,keyword_difficulty,position,position_prev,position_diff,volume,traffic,url"
@@ -240,6 +250,6 @@ with tab2:
                     )
                     st.success("Ahrefs Daten erfolgreich geladen!")
                 else:
-                    st.warning("Keine getrackten Keywords im Ahrefs Rank Tracker für dieses Projekt gefunden. Prüfe, ob im Ahrefs-Projekt bereits Keywords hinzugefügt wurden.")
+                    st.warning("Keine getrackten Keywords im Ahrefs Rank Tracker für dieses Projekt gefunden. Prüfe, ob im Ahrefs-Projekt bereits Keywords hinzugefügt wurden oder versuche die Umschaltung auf Mobile/Desktop.")
             else:
                 st.error(f"Fehler bei Ahrefs Rank Tracker API: {res_rank.status_code} - {res_rank.text}")
