@@ -31,13 +31,12 @@ if eingabe != APP_PASSWORD:
     st.stop()
 
 # ==========================================
-# 3. INTERAKTIVES DASHBOARD
+# 3. DASHBOARD MAIN
 # ==========================================
 st.empty()
 st.title("Performance-Dashboard")
 st.caption(f"Domain: {CLIENT_DOMAIN}")
 
-# TABS FÜR DIE UMSCHALTUNG
 tab1, tab2 = st.tabs(["📊 Google Search Console (Trend)", "🎯 Ahrefs Analytics & Keywords"])
 
 # ------------------------------------------
@@ -108,16 +107,32 @@ with tab1:
 
         st.plotly_chart(fig, use_container_width=True)
 
+        # KPI BERECHNUNGEN MIT GRÜNEN/ROTEN PFEILEN
         aktueller_wert = df_trend[column_name].iloc[-1]
         start_wert = df_trend[column_name].iloc[0]
-        trend_pct = ((start_wert - aktueller_wert) / start_wert * 100) if column_name == 'position' else ((aktueller_wert - start_wert) / start_wert * 100)
 
         col1, col2 = st.columns(2)
         if column_name == 'position':
+            # Bei Position ist ein SINKENDER Wert positiv!
+            diff_pos = start_wert - aktueller_wert
+            trend_pct = ((start_wert - aktueller_wert) / start_wert * 100) if start_wert != 0 else 0
+            
             col1.metric("AKTUELLER RANKING-DURCHSCHNITT", f"{aktueller_wert:.1f}")
+            # delta_color="inverse" sorgt dafür, dass negativer Positionswert (z.B. von Platz 15 auf Platz 8) grün angezeigt wird
+            col2.metric(
+                "PERFORMANCE-TREND", 
+                f"{aktueller_wert:.1f}", 
+                delta=f"{trend_pct:+.1f}% (Veränderung)",
+                delta_color="normal" if trend_pct >= 0 else "inverse"
+            )
         else:
+            trend_pct = ((aktueller_wert - start_wert) / start_wert * 100) if start_wert != 0 else 0
             col1.metric("AKTUELLER WERT", f"{int(aktueller_wert):,}".replace(",", "."))
-        col2.metric("PERFORMANCE-TREND", f"{trend_pct:+.1f}%")
+            col2.metric(
+                "PERFORMANCE-TREND", 
+                f"{int(aktueller_wert):,}".replace(",", "."), 
+                delta=f"{trend_pct:+.1f}%"
+            )
 
 # ------------------------------------------
 # TAB 2: AHREFS WEB ANALYTICS & RANK TRACKER
@@ -133,11 +148,9 @@ with tab2:
 
         # --- Teil 1: Organischer Traffic aus Ahrefs Web Analytics ---
         with st.spinner("Lade organischen Traffic aus Ahrefs Web Analytics..."):
-            # Dynamischer Zeitraum: Letzte 30 Tage im ISO 8601 UTC-Format
             to_date = datetime.now().strftime('%Y-%m-%dT23:59:59Z')
             from_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%dT00:00:00Z')
 
-            # Filter für organischen Traffic ("source_channel" == "search")
             where_filter = json.dumps({
                 "and": [
                     {
@@ -159,15 +172,17 @@ with tab2:
             res_analytics = requests.get(analytics_url, headers=headers, params=analytics_params)
 
             if res_analytics.status_code == 200:
-                stats_data = res_analytics.json().get("stats", {})
+                stats_raw = res_analytics.json().get("stats") or {}
                 
-                # Einzelne Besucher (Visitors) & Seitenaufrufe auslesen
-                visitors = stats_data.get("visitors", 0)
-                pageviews = stats_data.get("pageviews", 0)
-                sessions = stats_data.get("sessions", 0)
+                # ABFANGEN VON NONE-WERTE (Verhindert den ValueError)
+                visitors = int(stats_raw.get("visitors") or 0)
+                sessions = int(stats_raw.get("sessions") or 0)
+                pageviews = int(stats_raw.get("pageviews") or 0)
 
                 st.markdown("### 👥 Organischer Traffic (Letzte 30 Tage)")
                 col_a, col_b, col_c = st.columns(3)
+                
+                # Anzeige mit Tausendertrennzeichen
                 col_a.metric("Einzelne Besucher (Visitors)", f"{visitors:,}".replace(",", "."))
                 col_b.metric("Sitzungen (Sessions)", f"{sessions:,}".replace(",", "."))
                 col_c.metric("Seitenaufrufe (Pageviews)", f"{pageviews:,}".replace(",", "."))
@@ -176,7 +191,7 @@ with tab2:
 
         st.divider()
 
-        # --- Teil 2: Rank Tracker Keywords ---
+        # --- Teil 2: Rank Tracker Keywords mit grünen/roten Pfeilen ---
         with st.spinner("Lade Keyword-Rankings aus Ahrefs..."):
             today_str = datetime.now().strftime('%Y-%m-%d')
             prev_month_str = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
@@ -200,17 +215,32 @@ with tab2:
                 if keywords_raw:
                     df_rank = pd.DataFrame(keywords_raw)
 
-                    df_display = pd.DataFrame({
-                        "Keyword": df_rank.get("keyword", ""),
-                        "Position": df_rank.get("position", None),
-                        "Veränderung (30T)": df_rank.get("position_diff", 0),
-                        "Suchvolumen": df_rank.get("volume", 0),
-                        "Traffic": df_rank.get("traffic", 0),
-                        "KD": df_rank.get("keyword_difficulty", 0),
-                        "URL": df_rank.get("url", "")
-                    })
+                    # Funktion für grüne/rote Pfeile in der Tabelle
+                    def format_trend_arrow(diff):
+                        if pd.isna(diff) or diff == 0:
+                            return "➖ 0"
+                        elif diff > 0:
+                            return f"🟢 +{int(diff)}"
+                        else:
+                            return f"🔴 {int(diff)}"
 
-                    top10_count = len(df_display[df_display["Position"] <= 10])
+                    # Tabellenspalten aufbereiten
+                    df_display = pd.DataFrame()
+                    df_display["Keyword"] = df_rank.get("keyword", "")
+                    df_display["Position"] = df_rank.get("position", None)
+                    
+                    # Pfeil-Spalte berechnen
+                    if "position_diff" in df_rank.columns:
+                        df_display["Trend (30T)"] = df_rank["position_diff"].apply(format_trend_arrow)
+                    else:
+                        df_display["Trend (30T)"] = "➖ 0"
+
+                    df_display["Suchvolumen"] = df_rank.get("volume", 0)
+                    df_display["Traffic"] = df_rank.get("traffic", 0)
+                    df_display["KD"] = df_rank.get("keyword_difficulty", 0)
+                    df_display["URL"] = df_rank.get("url", "")
+
+                    top10_count = len(df_display[df_display["Position"].fillna(99) <= 10])
 
                     st.markdown("### 🏆 Rank Tracker Keywords")
                     st.metric("TRACKED KEYWORDS IN DEN TOP 10", f"{top10_count} Keywords")
