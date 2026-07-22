@@ -64,32 +64,49 @@ def calc_pct_str(curr, prev):
   return f"{((curr - prev) / prev) * 100:+.1f}%"
 
 
-# --- PDF CHART 1: GSC Traffic Reines Liniendiagramm ---
+# --- PDF CHART 1: GSC Traffic Liniendiagramm mit Punkte-Style ---
 def generate_gsc_chart_bytes(df_trend):
-  fig, ax = plt.subplots(figsize=(5.8, 2.2), dpi=200)
+  fig, ax = plt.subplots(figsize=(5.8, 2.3), dpi=200)
+
   if df_trend is not None and not df_trend.empty:
-    # Reines Liniendiagramm ohne fill_between
+    # Liniendiagramm exakt im Style des Screenshots (Linie + Dots auf allen Punkten)
     ax.plot(
         df_trend["date"],
         df_trend["clicks"],
-        color="#2563EB",
-        linewidth=2,
+        color="#4A90E2",
+        linewidth=1.8,
+        marker="o",
+        markersize=3.5,
+        markerfacecolor="#4A90E2",
+        markeredgecolor="#4A90E2",
         label="Traffic",
     )
 
-  ax.set_facecolor("#F8FAFC")
   fig.patch.set_facecolor("#ffffff")
-  ax.spines["top"].set_visible(False)
-  ax.spines["right"].set_visible(False)
-  ax.grid(axis="y", linestyle="--", alpha=0.5, color="#CBD5E1")
-  ax.tick_params(axis="both", colors="#475569", labelsize=7.5)
-  ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m"))
+  ax.set_facecolor("#ffffff")
+
+  # Nur horizontale, sehr helle Gitterlinien
+  ax.grid(axis="y", color="#E5E7EB", linestyle="-", linewidth=0.8, alpha=0.8)
+
+  # Alle Rahmenlinien ausblenden
+  for spine in ["top", "right", "left", "bottom"]:
+    ax.spines[spine].set_visible(False)
+
+  ax.tick_params(axis="both", colors="#6B7280", labelsize=7)
+  ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+
+  ax.set_xlabel("Datum", fontsize=7.5, color="#6B7280", labelpad=4)
+  ax.set_ylabel(
+      "Organischer Traffic", fontsize=7.5, color="#6B7280", labelpad=4
+  )
+
   ax.set_title(
       "Organischer Traffic (GSC - Letzte 90 Tage)",
-      fontsize=9,
+      fontsize=8.5,
       fontweight="bold",
-      color="#0F172A",
-      pad=8,
+      color="#1F2937",
+      loc="left",
+      pad=10,
   )
 
   plt.tight_layout()
@@ -111,7 +128,7 @@ def generate_kw_bar_bytes(df_display):
   counts = [p1_3, p4_10, p11_20, p21_plus]
   colors_list = ["#16A34A", "#2563EB", "#F59E0B", "#94A3B8"]
 
-  fig, ax = plt.subplots(figsize=(2.8, 2.2), dpi=200)
+  fig, ax = plt.subplots(figsize=(2.8, 2.3), dpi=200)
 
   bars = ax.barh(
       categories[::-1], counts[::-1], color=colors_list[::-1], height=0.55
@@ -131,7 +148,7 @@ def generate_kw_bar_bytes(df_display):
         color="#0F172A",
     )
 
-  ax.set_facecolor("#F8FAFC")
+  ax.set_facecolor("#ffffff")
   fig.patch.set_facecolor("#ffffff")
   ax.spines["top"].set_visible(False)
   ax.spines["right"].set_visible(False)
@@ -142,10 +159,10 @@ def generate_kw_bar_bytes(df_display):
   ax.set_xlim(0, max_val * 1.3)
   ax.set_title(
       "Keyword-Verteilung",
-      fontsize=9,
+      fontsize=8.5,
       fontweight="bold",
-      color="#0F172A",
-      pad=8,
+      color="#1F2937",
+      pad=10,
   )
 
   plt.tight_layout()
@@ -300,8 +317,8 @@ def build_live_pdf_report(
   story.append(
       Paragraph("Visuelle Trend- & Keyword-Analyse", section_heading)
   )
-  gsc_img = Image(generate_gsc_chart_bytes(df_trend), width=320, height=120)
-  kw_img = Image(generate_kw_bar_bytes(df_display), width=185, height=120)
+  gsc_img = Image(generate_gsc_chart_bytes(df_trend), width=320, height=125)
+  kw_img = Image(generate_kw_bar_bytes(df_display), width=185, height=125)
 
   chart_table = Table([[gsc_img, kw_img]], colWidths=[325, 198])
   chart_table.setStyle(
@@ -313,7 +330,7 @@ def build_live_pdf_report(
   )
   story.append(chart_table)
 
-  # Section 3: Keyword Rankings 
+  # Section 3: Keyword Rankings
   story.append(
       Paragraph(
           f"Top Keyword Rankings ({device_choice.capitalize()})",
@@ -335,16 +352,20 @@ def build_live_pdf_report(
     trend_raw = str(row["Trend"])
 
     if "🟢" in trend_raw:
-      trend_pdf = f"<font color='#16A34A'><b>{trend_raw.replace('🟢 ', '')}</b></font>"
+      trend_pdf = (
+          f"<font color='#16A34A'><b>{trend_raw.replace('🟢 ', '')}</b></font>"
+      )
     elif "🔴" in trend_raw:
-      trend_pdf = f"<font color='#DC2626'><b>{trend_raw.replace('🔴 ', '')}</b></font>"
+      trend_pdf = (
+          f"<font color='#DC2626'><b>{trend_raw.replace('🔴 ', '')}</b></font>"
+      )
     else:
       trend_pdf = f"<font color='#94A3B8'>{trend_raw.replace('➖ ', '')}</font>"
 
     kw_table_data.append([
         Paragraph(f"<b>{row['Keyword']}</b>", cell_style),
         Paragraph(str(row["Position"]), cell_style),
-        Paragraph(trend_pdf, cell_style), 
+        Paragraph(trend_pdf, cell_style),
         Paragraph(f"{int(row['Suchvolumen']):,}", cell_style),
         Paragraph(f"{int(row['Traffic']):,}", cell_style),
         Paragraph(str(int(row["KD"])), cell_style),
@@ -711,7 +732,9 @@ with tab2:
           if not df_display.empty:
             top10_count = len(df_display[df_display["Position"] <= 10])
 
-            st.markdown(f"### 🏆 Rank Tracker Keywords ({device_choice.capitalize()})")
+            st.markdown(
+                f"### 🏆 Rank Tracker Keywords ({device_choice.capitalize()})"
+            )
             st.metric(
                 "TRACKED KEYWORDS IN DEN TOP 10", f"{top10_count} Keywords"
             )
@@ -745,12 +768,17 @@ with tab2:
             st.download_button(
                 label="📥 Als PDF-Kundenreport herunterladen",
                 data=pdf_bytes,
-                file_name=f"SEO_Report_{CLIENT_DOMAIN.replace('https://', '').replace('/', '')}_{datetime.now().strftime('%Y%m%d')}.pdf",
+                file_name=(
+                    f"SEO_Report_{CLIENT_DOMAIN.replace('https://', '').replace('/', '')}_{datetime.now().strftime('%Y%m%d')}.pdf"
+                ),
                 mime="application/pdf",
                 use_container_width=True,
             )
           else:
-            st.warning(f"Keine gerankten Keywords auf {device_choice.capitalize()} gefunden.")
+            st.warning(
+                f"Keine gerankten Keywords auf {device_choice.capitalize()}"
+                " gefunden."
+            )
         else:
           st.warning("Keine Keywords in Ahrefs gefunden.")
       else:
