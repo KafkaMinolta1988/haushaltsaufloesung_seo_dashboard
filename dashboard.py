@@ -64,7 +64,7 @@ def calc_pct_str(curr, prev):
   return f"{((curr - prev) / prev) * 100:+.1f}%"
 
 
-# --- PDF CHART 1: GSC Klicks Verlaufs-Chart ---
+# --- PDF CHART 1: GSC Traffic Verlaufs-Chart ---
 def generate_gsc_chart_bytes(df_trend):
   fig, ax = plt.subplots(figsize=(5.8, 2.2), dpi=200)
   if df_trend is not None and not df_trend.empty:
@@ -165,7 +165,6 @@ def build_live_pdf_report(
     ahrefs_analytics_data,
     df_display,
     df_trend,
-    device_choice,
 ):
   pdf_buffer = io.BytesIO()
   doc = SimpleDocTemplate(
@@ -316,12 +315,7 @@ def build_live_pdf_report(
   story.append(chart_table)
 
   # Section 3: Keyword Rankings
-  story.append(
-      Paragraph(
-          f"Top Keyword Rankings ({device_choice.capitalize()})",
-          section_heading,
-      )
-  )
+  story.append(Paragraph("Top Keyword Rankings", section_heading))
 
   kw_headers = [
       Paragraph("Keyword", cell_header_style),
@@ -337,9 +331,13 @@ def build_live_pdf_report(
     trend_raw = str(row["Trend"])
 
     if "🟢" in trend_raw:
-      trend_pdf = f"<font color='#16A34A'><b>{trend_raw.replace('🟢 ', '')}</b></font>"
+      trend_pdf = (
+          f"<font color='#16A34A'><b>{trend_raw.replace('🟢 ', '')}</b></font>"
+      )
     elif "🔴" in trend_raw:
-      trend_pdf = f"<font color='#DC2626'><b>{trend_raw.replace('🔴 ', '')}</b></font>"
+      trend_pdf = (
+          f"<font color='#DC2626'><b>{trend_raw.replace('🔴 ', '')}</b></font>"
+      )
     else:
       trend_pdf = f"<font color='#94A3B8'>{trend_raw.replace('➖ ', '')}</font>"
 
@@ -536,12 +534,6 @@ with tab1:
 with tab2:
   st.subheader("🎯 Ahrefs Web Analytics & Keywords")
 
-  device_choice = st.radio(
-      "Gerät für Rank Tracker auswählen:",
-      ["desktop", "mobile"],
-      horizontal=True,
-  )
-
   if st.button("Ahrefs Daten jetzt live abrufen"):
     headers = {
         "Authorization": f"Bearer {AHREFS_KEY}",
@@ -643,7 +635,6 @@ with tab2:
           "project_id": AHREFS_PROJECT_ID,
           "date": today_str,
           "date_compared": prev_month_str,
-          "device": device_choice,
           "limit": 1000,
           "select": ahrefs_exact_select,
       }
@@ -662,8 +653,10 @@ with tab2:
         if keywords_raw:
           df_rank = pd.DataFrame(keywords_raw)
 
-          # Nur Keywords behalten, die eine tatsächliche Position auf dem gewählten Gerät besitzen
-          df_rank["position"] = pd.to_numeric(df_rank.get("position"), errors="coerce")
+          # Nur Keywords behalten, die eine tatsächliche Position besitzen
+          df_rank["position"] = pd.to_numeric(
+              df_rank.get("position"), errors="coerce"
+          )
           df_rank = df_rank.dropna(subset=["position"]).copy()
 
           df_display = pd.DataFrame()
@@ -682,19 +675,35 @@ with tab2:
             except:
               return "➖ 0"
 
-          df_display["Trend"] = df_rank.get("position_diff", pd.Series([0]*len(df_rank))).apply(format_trend_arrow)
-          df_display["Suchvolumen"] = pd.to_numeric(df_rank.get("volume", 0), errors="coerce").fillna(0).astype(int)
-          df_display["Traffic"] = pd.to_numeric(df_rank.get("traffic", 0), errors="coerce").fillna(0).astype(int)
-          df_display["KD"] = pd.to_numeric(df_rank.get("keyword_difficulty", 0), errors="coerce").fillna(0).astype(int)
+          df_display["Trend"] = df_rank.get(
+              "position_diff", pd.Series([0] * len(df_rank))
+          ).apply(format_trend_arrow)
+          df_display["Suchvolumen"] = (
+              pd.to_numeric(df_rank.get("volume", 0), errors="coerce")
+              .fillna(0)
+              .astype(int)
+          )
+          df_display["Traffic"] = (
+              pd.to_numeric(df_rank.get("traffic", 0), errors="coerce")
+              .fillna(0)
+              .astype(int)
+          )
+          df_display["KD"] = (
+              pd.to_numeric(df_rank.get("keyword_difficulty", 0), errors="coerce")
+              .fillna(0)
+              .astype(int)
+          )
           df_display["URL"] = df_rank.get("url", "-").fillna("-")
 
           # 1:1 Sortierung exakt nach Ranking (Position 1, 2, 3...)
-          df_display = df_display.sort_values(by=["Position", "Suchvolumen"], ascending=[True, False]).reset_index(drop=True)
+          df_display = df_display.sort_values(
+              by=["Position", "Suchvolumen"], ascending=[True, False]
+          ).reset_index(drop=True)
 
           if not df_display.empty:
             top10_count = len(df_display[df_display["Position"] <= 10])
 
-            st.markdown(f"### 🏆 Rank Tracker Keywords ({device_choice.capitalize()})")
+            st.markdown("### 🏆 Rank Tracker Keywords")
             st.metric(
                 "TRACKED KEYWORDS IN DEN TOP 10", f"{top10_count} Keywords"
             )
@@ -721,7 +730,6 @@ with tab2:
                 ahrefs_analytics_data,
                 df_display,
                 df_trend,
-                device_choice,
             )
 
             st.markdown("### 📄 PDF-Export für Kunden")
@@ -733,7 +741,7 @@ with tab2:
                 use_container_width=True,
             )
           else:
-            st.warning(f"Keine gerankten Keywords auf {device_choice.capitalize()} gefunden.")
+            st.warning("Keine gerankten Keywords gefunden.")
         else:
           st.warning("Keine Keywords in Ahrefs gefunden.")
       else:
