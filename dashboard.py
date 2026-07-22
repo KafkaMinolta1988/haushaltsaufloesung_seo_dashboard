@@ -182,44 +182,9 @@ with tab2:
 
         st.divider()
 
-        # --- Teil 2: Rank Tracker ---
-        with st.spinner("Lade Keyword-Rankings..."):
-            rank_params = {
-                "project_id": AHREFS_PROJECT_ID, "limit": 100, "order_by": "traffic:desc",
-                "select": "keyword,keyword_difficulty,position,position_prev,position_diff,volume,traffic,url"
-            }
-            res_rank = requests.get("https://api.ahrefs.com/v3/rank-tracker/overview", headers=headers, params=rank_params)
-
-            if res_rank.status_code == 200:
-                keywords_raw = res_rank.json().get("overview", [])
-                if keywords_raw:
-                    df_rank = pd.DataFrame(keywords_raw)
-
-                    def format_trend(diff):
-                        if pd.isna(diff) or diff == 0: return "➖ 0"
-                        return f"🟢 +{int(diff)}" if diff > 0 else f"🔴 {int(diff)}"
-
-                    df_display = pd.DataFrame()
-                    df_display["Keyword"] = df_rank.get("keyword", "")
-                    df_display["Position"] = df_rank.get("position", None)
-                    df_display["Trend"] = df_rank["position_diff"].apply(format_trend) if "position_diff" in df_rank.columns else "➖ 0"
-                    df_display["Suchvolumen"] = df_rank.get("volume", 0)
-                    df_display["Traffic"] = df_rank.get("traffic", 0)
-                    df_display["KD"] = df_rank.get("keyword_difficulty", 0)
-                    df_display["URL"] = df_rank.get("url", "")
-
-                    top10_count = len(df_display[df_display["Position"].fillna(99) <= 10])
-
-                    st.markdown("### 🏆 Rank Tracker Keywords")
-                    st.metric("TRACKED KEYWORDS IN DEN TOP 10", f"{top10_count} Keywords")
-                    st.dataframe(df_display, use_container_width=True, hide_index=True)
-                else:
-                    st.warning("Keine Rank Tracker Daten gefunden.")
-                    # --- Teil 2: Rank Tracker Keywords (Mit automatischem Datenstand) ---
+        # --- Teil 2: Rank Tracker Keywords ---
         with st.spinner("Lade Keyword-Rankings aus Ahrefs..."):
             rank_url = "https://api.ahrefs.com/v3/rank-tracker/overview"
-            
-            # Kein fixes Datum mehr übergeben -> Ahrefs nimmt automatisch die aktuellsten Daten!
             rank_params = {
                 "project_id": AHREFS_PROJECT_ID,
                 "limit": 100,
@@ -235,7 +200,6 @@ with tab2:
                 if keywords_raw:
                     df_rank = pd.DataFrame(keywords_raw)
 
-                    # Funktion für grüne/rote Pfeile
                     def format_trend_arrow(diff):
                         if pd.isna(diff) or diff == 0:
                             return "➖ 0"
@@ -244,7 +208,6 @@ with tab2:
                         else:
                             return f"🔴 {int(diff)}"
 
-                    # Tabellenspalten aufbereiten
                     df_display = pd.DataFrame()
                     df_display["Keyword"] = df_rank.get("keyword", "")
                     df_display["Position"] = df_rank.get("position", None)
@@ -271,6 +234,6 @@ with tab2:
                     )
                     st.success("Ahrefs Daten erfolgreich geladen!")
                 else:
-                    st.warning("Keine getrackten Keywords im Ahrefs Rank Tracker für dieses Projekt hinterlegt. Prüfe, ob im Ahrefs-Projekt bereits Keywords hinzugefügt wurden.")
+                    st.warning("Keine getrackten Keywords im Ahrefs Rank Tracker für dieses Projekt hinterlegt.")
             else:
                 st.error(f"Fehler bei Ahrefs Rank Tracker API: {res_rank.status_code} - {res_rank.text}")
