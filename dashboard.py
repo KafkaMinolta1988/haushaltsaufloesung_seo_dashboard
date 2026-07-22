@@ -165,6 +165,7 @@ def build_live_pdf_report(
     ahrefs_analytics_data,
     df_display,
     df_trend,
+    device_choice,
 ):
   pdf_buffer = io.BytesIO()
   doc = SimpleDocTemplate(
@@ -314,8 +315,13 @@ def build_live_pdf_report(
   )
   story.append(chart_table)
 
-  # Section 3: Keyword Rankings
-  story.append(Paragraph("Top Keyword Rankings", section_heading))
+  # Section 3: Keyword Rankings 
+  story.append(
+      Paragraph(
+          f"Top Keyword Rankings ({device_choice.capitalize()})",
+          section_heading,
+      )
+  )
 
   kw_headers = [
       Paragraph("Keyword", cell_header_style),
@@ -331,20 +337,16 @@ def build_live_pdf_report(
     trend_raw = str(row["Trend"])
 
     if "🟢" in trend_raw:
-      trend_pdf = (
-          f"<font color='#16A34A'><b>{trend_raw.replace('🟢 ', '')}</b></font>"
-      )
+      trend_pdf = f"<font color='#16A34A'><b>{trend_raw.replace('🟢 ', '')}</b></font>"
     elif "🔴" in trend_raw:
-      trend_pdf = (
-          f"<font color='#DC2626'><b>{trend_raw.replace('🔴 ', '')}</b></font>"
-      )
+      trend_pdf = f"<font color='#DC2626'><b>{trend_raw.replace('🔴 ', '')}</b></font>"
     else:
       trend_pdf = f"<font color='#94A3B8'>{trend_raw.replace('➖ ', '')}</font>"
 
     kw_table_data.append([
         Paragraph(f"<b>{row['Keyword']}</b>", cell_style),
         Paragraph(str(row["Position"]), cell_style),
-        Paragraph(trend_pdf, cell_style),
+        Paragraph(trend_pdf, cell_style), 
         Paragraph(f"{int(row['Suchvolumen']):,}", cell_style),
         Paragraph(f"{int(row['Traffic']):,}", cell_style),
         Paragraph(str(int(row["KD"])), cell_style),
@@ -534,6 +536,12 @@ with tab1:
 with tab2:
   st.subheader("🎯 Ahrefs Web Analytics & Keywords")
 
+  device_choice = st.radio(
+      "Gerät für Rank Tracker auswählen:",
+      ["desktop", "mobile"],
+      horizontal=True,
+  )
+
   if st.button("Ahrefs Daten jetzt live abrufen"):
     headers = {
         "Authorization": f"Bearer {AHREFS_KEY}",
@@ -635,7 +643,9 @@ with tab2:
           "project_id": AHREFS_PROJECT_ID,
           "date": today_str,
           "date_compared": prev_month_str,
+          "device": device_choice,
           "limit": 1000,
+          "order_by": "traffic:desc",
           "select": ahrefs_exact_select,
       }
 
@@ -703,7 +713,7 @@ with tab2:
           if not df_display.empty:
             top10_count = len(df_display[df_display["Position"] <= 10])
 
-            st.markdown("### 🏆 Rank Tracker Keywords")
+            st.markdown(f"### 🏆 Rank Tracker Keywords ({device_choice.capitalize()})")
             st.metric(
                 "TRACKED KEYWORDS IN DEN TOP 10", f"{top10_count} Keywords"
             )
@@ -730,6 +740,7 @@ with tab2:
                 ahrefs_analytics_data,
                 df_display,
                 df_trend,
+                device_choice,
             )
 
             st.markdown("### 📄 PDF-Export für Kunden")
@@ -741,7 +752,7 @@ with tab2:
                 use_container_width=True,
             )
           else:
-            st.warning("Keine gerankten Keywords gefunden.")
+            st.warning(f"Keine gerankten Keywords auf {device_choice.capitalize()} gefunden.")
         else:
           st.warning("Keine Keywords in Ahrefs gefunden.")
       else:
