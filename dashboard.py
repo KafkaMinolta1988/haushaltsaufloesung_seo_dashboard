@@ -271,7 +271,6 @@ with tab2:
             stats_prev.get("pageviews") or 0
         )
 
-        # Seiten pro Besucher statt der unvollständigen '0 Sitzungen'
         pages_per_vis_curr = (c_pag / c_vis) if c_vis > 0 else 0
         pages_per_vis_prev = (p_pag / p_vis) if p_vis > 0 else 0
 
@@ -286,6 +285,10 @@ with tab2:
             "Ø Seiten / Besucher",
             f"{pages_per_vis_curr:.2f}",
             delta=calc_pct_str(pages_per_vis_curr, pages_per_vis_prev),
+            help=(
+                "Zeigt an, wie viele Seiten ein Besucher im Schnitt aufruft."
+                " Der Prozentwert vergleicht mit dem Vorjahr."
+            ),
         )
         col_c.metric(
             "Seitenaufrufe",
@@ -340,22 +343,25 @@ with tab2:
         if keywords_raw:
           df_rank = pd.DataFrame(keywords_raw)
 
-          # 1. FILTER: Nur Keywords behalten, die eine aktive Position haben
+          # Nur Keywords mit aktiver Position behalten
           df_rank = df_rank[df_rank["position"].notna()].copy()
 
-          # 2. SORTIERUNG: Aufsteigend nach Ranking-Position sortieren (1, 2, 3...)
+          # Nach Position sortieren (1, 2, 3...)
           df_rank["position"] = df_rank["position"].astype(int)
           df_rank = df_rank.sort_values(by="position", ascending=True)
 
           if not df_rank.empty:
 
+            # KORRIGIERTE TREND-LOGIK FÜR SEO
             def format_trend_arrow(diff):
               if pd.isna(diff) or diff == 0:
                 return "➖ 0"
-              elif diff > 0:
-                return f"🟢 +{int(diff)}"
+              elif diff < 0:
+                # Negativer Diff in Ahrefs = Rang VERBESSERT (z.B. von 2 auf 1 = diff -1)
+                return f"🟢 +{abs(int(diff))}"
               else:
-                return f"🔴 {int(diff)}"
+                # Positiver Diff in Ahrefs = Rang VERSCHLECHTERT (z.B. von 9 auf 16 = diff +7)
+                return f"🔴 -{abs(int(diff))}"
 
             df_display = pd.DataFrame()
             df_display["Keyword"] = df_rank.get("keyword", "")
