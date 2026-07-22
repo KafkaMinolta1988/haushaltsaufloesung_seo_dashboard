@@ -114,7 +114,6 @@ with tab1:
             col2.metric("Impressionen", f"{int(c_impr):,}".replace(",", "."), delta=calc_pct_str(c_impr, p_impr))
             col3.metric("Ø CTR", f"{c_ctr:.2f}%", delta=f"{c_ctr - p_ctr:+.2f}% Punkte")
             
-            # Bei Ranking (Position) ist ein niedrigerer Wert besser -> delta_color="inverse" macht ein "-" grün!
             col4.metric("Ø Position", f"{c_pos:.1f}", delta=f"{c_pos - p_pos:+.1f} Plätze", delta_color="inverse")
             
         except Exception as e:
@@ -122,7 +121,6 @@ with tab1:
 
     st.divider()
     
-    # Der Zeitverlauf-Graph darunter
     df_trend = load_gsc_timeseries()
     if df_trend is not None:
         metrik_option = st.selectbox("Metrik für Zeitverlauf auswählen", ["Durchschnittliche Position", "Organische Klicks", "Impressionen"])
@@ -185,8 +183,11 @@ with tab2:
         # --- Teil 2: Rank Tracker Keywords ---
         with st.spinner("Lade Keyword-Rankings aus Ahrefs..."):
             rank_url = "https://api.ahrefs.com/v3/rank-tracker/overview"
+            
+            # Hier ist das korrigierte 'device': 'desktop'
             rank_params = {
                 "project_id": AHREFS_PROJECT_ID,
+                "device": "desktop",
                 "limit": 100,
                 "order_by": "traffic:desc",
                 "select": "keyword,keyword_difficulty,position,position_prev,position_diff,volume,traffic,url"
