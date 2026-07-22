@@ -64,19 +64,17 @@ def calc_pct_str(curr, prev):
   return f"{((curr - prev) / prev) * 100:+.1f}%"
 
 
-# --- PDF CHART 1: GSC Traffic Verlaufs-Chart ---
+# --- PDF CHART 1: GSC Traffic Reines Liniendiagramm ---
 def generate_gsc_chart_bytes(df_trend):
   fig, ax = plt.subplots(figsize=(5.8, 2.2), dpi=200)
   if df_trend is not None and not df_trend.empty:
+    # Reines Liniendiagramm ohne fill_between
     ax.plot(
         df_trend["date"],
         df_trend["clicks"],
         color="#2563EB",
         linewidth=2,
         label="Traffic",
-    )
-    ax.fill_between(
-        df_trend["date"], df_trend["clicks"], color="#2563EB", alpha=0.15
     )
 
   ax.set_facecolor("#F8FAFC")
