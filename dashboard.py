@@ -22,8 +22,8 @@ st.set_page_config(
 try:
     CLIENT_DOMAIN = st.secrets["client_domain"]
     APP_PASSWORD = st.secrets["app_password"]
-    AHREFS_KEY = st.secrets["ahrefs_api_key"]
-    AHREFS_PROJECT_ID = st.secrets["ahrefs_project_id"]
+    AHREFS_KEY = st.secrets["ahrefs_api_key"].strip()
+    AHREFS_PROJECT_ID = str(st.secrets["ahrefs_project_id"]).strip()
     GSC_JSON_RAW = st.secrets["gsc_json"]
 except KeyError as e:
     st.error(f"Fehler im Tresor (Secrets): Der Schlüssel '{e}' fehlt!")
@@ -190,14 +190,13 @@ with tab2:
 
         st.divider()
 
-        # --- Teil 2: Rank Tracker Keywords (Exakt wie in Ahrefs API-Export) ---
+        # --- Teil 2: Rank Tracker Keywords ---
         with st.spinner("Lade Keyword-Rankings aus Ahrefs..."):
             rank_url = "https://api.ahrefs.com/v3/rank-tracker/overview"
-            keywords_raw = []
-            res_rank = None
-            found_date_str = ""
+            
+            today_str = datetime.now().strftime('%Y-%m-%d')
+            prev_month_str = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
 
-            # Exakte 1:1 Parameter-Liste aus dem Ahrefs API-Button
             ahrefs_exact_select = (
                 "keyword,keyword_difficulty,clicks,cost_per_click,parent_topic,location,language,"
                 "target_positions_count,position,position_prev,position_diff,url,url_prev,created_at,"
@@ -208,69 +207,64 @@ with tab2:
                 "search_type_news,search_type_video,search_type_web,volume,traffic,traffic_prev,traffic_diff,clicks_per_search"
             )
 
-            # Teste die letzten 7 Tage, falls der heutige Scan noch nicht abgeschlossen ist
-            for days_back in range(0, 7):
-                curr_d = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
-                prev_d = (datetime.now() - timedelta(days=days_back + 30)).strftime('%Y-%m-%d')
+            rank_params = {
+                "project_id": AHREFS_PROJECT_ID,
+                "date": today_str,
+                "date_compared": prev_month_str,
+                "device": device_choice,
+                "limit": 100,
+                "order_by": "traffic:desc",
+                "select": ahrefs_exact_select
+            }
 
-                rank_params = {
-                    "project_id": AHREFS_PROJECT_ID,
-                    "date": curr_d,
-                    "date_compared": prev_d,
-                    "device": device_choice,
-                    "limit": 100,
-                    "order_by": "traffic:desc",
-                    "select": ahrefs_exact_select
-                }
+            res_rank = requests.get(rank_url, headers=headers, params=rank_params)
 
-                res_rank = requests.get(rank_url, headers=headers, params=rank_params)
-
-                if res_rank.status_code == 200:
-                    json_data = res_rank.json()
-                    data_temp = json_data.get("overview") or []
-                    if data_temp:
-                        keywords_raw = data_temp
-                        found_date_str = curr_d
-                        break
-
-            if keywords_raw:
-                df_rank = pd.DataFrame(keywords_raw)
-
-                def format_trend_arrow(diff):
-                    if pd.isna(diff) or diff == 0:
-                        return "➖ 0"
-                    elif diff > 0:
-                        return f"🟢 +{int(diff)}"
-                    else:
-                        return f"🔴 {int(diff)}"
-
-                df_display = pd.DataFrame()
-                df_display["Keyword"] = df_rank.get("keyword", "")
-                df_display["Position"] = df_rank.get("position", None)
+            if res_rank.status_code == 200:
+                json_data = res_rank.json()
                 
-                if "position_diff" in df_rank.columns:
-                    df_display["Trend"] = df_rank["position_diff"].apply(format_trend_arrow)
+                # Prüfe auf verschiedene mögliche Keys in der Antwort
+                keywords_raw = json_data.get("overview") or json_data.get("keywords") or []
+
+                if keywords_raw:
+                    df_rank = pd.DataFrame(keywords_raw)
+
+                    def format_trend_arrow(diff):
+                        if pd.isna(diff) or diff == 0:
+                            return "➖ 0"
+                        elif diff > 0:
+                            return f"🟢 +{int(diff)}"
+                        else:
+                            return f"🔴 {int(diff)}"
+
+                    df_display = pd.DataFrame()
+                    df_display["Keyword"] = df_rank.get("keyword", "")
+                    df_display["Position"] = df_rank.get("position", None)
+                    
+                    if "position_diff" in df_rank.columns:
+                        df_display["Trend"] = df_rank["position_diff"].apply(format_trend_arrow)
+                    else:
+                        df_display["Trend"] = "➖ 0"
+
+                    df_display["Suchvolumen"] = df_rank.get("volume", 0)
+                    df_display["Traffic"] = df_rank.get("traffic", 0)
+                    df_display["KD"] = df_rank.get("keyword_difficulty", 0)
+                    df_display["URL"] = df_rank.get("url", "")
+
+                    top10_count = len(df_display[df_display["Position"].fillna(99) <= 10])
+
+                    st.markdown("### 🏆 Rank Tracker Keywords")
+                    st.metric("TRACKED KEYWORDS IN DEN TOP 10", f"{top10_count} Keywords")
+
+                    st.dataframe(
+                        df_display,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    st.success(f"{len(df_display)} Keywords erfolgreich geladen!")
                 else:
-                    df_display["Trend"] = "➖ 0"
-
-                df_display["Suchvolumen"] = df_rank.get("volume", 0)
-                df_display["Traffic"] = df_rank.get("traffic", 0)
-                df_display["KD"] = df_rank.get("keyword_difficulty", 0)
-                df_display["URL"] = df_rank.get("url", "")
-
-                top10_count = len(df_display[df_display["Position"].fillna(99) <= 10])
-
-                st.markdown(f"### 🏆 Rank Tracker Keywords *(Datenstand: {found_date_str})*")
-                st.metric("TRACKED KEYWORDS IN DEN TOP 10", f"{top10_count} Keywords")
-
-                st.dataframe(
-                    df_display,
-                    use_container_width=True,
-                    hide_index=True
-                )
-                st.success(f"{len(df_display)} Keywords erfolgreich aus Ahrefs geladen!")
+                    st.warning(f"Ahrefs antwortet mit 200 OK, liefert aber 0 Keywords zurück.")
+                    st.info(f"📍 Aktuell angefragte Projekt-ID: `{AHREFS_PROJECT_ID}`")
+                    st.markdown("**🔍 Vollständige Roh-Antwort von Ahrefs:**")
+                    st.json(json_data)
             else:
-                if res_rank is not None and res_rank.status_code != 200:
-                    st.error(f"Fehler bei Ahrefs Rank Tracker API ({res_rank.status_code}): {res_rank.text}")
-                else:
-                    st.warning("Keine getrackten Keywords in Ahrefs gefunden.")
+                st.error(f"Fehler bei Ahrefs Rank Tracker API ({res_rank.status_code}): {res_rank.text}")
