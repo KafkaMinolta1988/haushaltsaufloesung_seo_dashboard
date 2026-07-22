@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
+
 # ==========================================
 # 1. DATEN AUS DEM TRESOR LADEN
 # ==========================================
@@ -12,7 +13,7 @@ try:
     CLIENT_DOMAIN = st.secrets["client_domain"]
     APP_PASSWORD = st.secrets["app_password"]
     AHREFS_KEY = st.secrets["ahrefs_api_key"]
-    GSC_SECRETS = st.secrets["gsc_credentials"]
+    GSC_JSON_RAW = st.secrets["gsc_json"]  # <-- Geändert
 except KeyError:
     st.error("Der Tresor (Secrets) ist unvollständig. Bitte überprüfe deine Secrets in Streamlit!")
     st.stop()
