@@ -17,6 +17,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import (
     HRFlowable,
     Image,
+    PageBreak,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -66,7 +67,7 @@ def calc_pct_str(curr, prev):
 
 # --- PDF CHART 1: GSC Klicks Verlaufs-Chart ---
 def generate_gsc_chart_bytes(df_trend):
-  fig, ax = plt.subplots(figsize=(6.5, 2.2), dpi=200)
+  fig, ax = plt.subplots(figsize=(6.0, 2.5), dpi=200)
   if df_trend is not None and not df_trend.empty:
     ax.plot(
         df_trend["date"],
@@ -88,9 +89,10 @@ def generate_gsc_chart_bytes(df_trend):
   ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m"))
   ax.set_title(
       "Organische Klicks (GSC - Letzte 90 Tage)",
-      fontsize=8.5,
+      fontsize=9,
       fontweight="bold",
       color="#0F172A",
+      pad=10,
   )
 
   plt.tight_layout()
@@ -101,7 +103,7 @@ def generate_gsc_chart_bytes(df_trend):
   return buf
 
 
-# --- PDF CHART 2: Keyword Donut-Chart ---
+# --- PDF CHART 2: Exakt rundes Donut-Chart ---
 def generate_kw_donut_bytes(df_display):
   p1_3 = len(df_display[df_display["Position"].between(1, 3)])
   p4_10 = len(df_display[df_display["Position"].between(4, 10)])
@@ -123,7 +125,10 @@ def generate_kw_donut_bytes(df_display):
       if s > 0
   ]
 
-  fig, ax = plt.subplots(figsize=(3.2, 2.2), dpi=200)
+  # QUADRATISCHE FIGSIZE + EQUAL ASPECT = ERZWINGT 100% RUNDEN KREIS
+  fig, ax = plt.subplots(figsize=(2.6, 2.6), dpi=200)
+  ax.set_aspect("equal")
+
   if non_zeros:
     nz_labels, nz_sizes, nz_colors = zip(*non_zeros)
     wedges, texts, autotexts = ax.pie(
@@ -132,9 +137,9 @@ def generate_kw_donut_bytes(df_display):
         colors=nz_colors,
         autopct="%1.0f%%",
         startangle=90,
-        pctdistance=0.75,
+        pctdistance=0.72,
         textprops=dict(color="#1E293B", fontsize=7),
-        wedgeprops=dict(width=0.35, edgecolor="white", linewidth=1.5),
+        wedgeprops=dict(width=0.38, edgecolor="white", linewidth=1.5),
     )
     for autotext in autotexts:
       autotext.set_color("white")
@@ -152,7 +157,11 @@ def generate_kw_donut_bytes(df_display):
     )
 
   ax.set_title(
-      "Keyword-Verteilung", fontsize=8.5, fontweight="bold", color="#0F172A"
+      "Keyword-Verteilung",
+      fontsize=9,
+      fontweight="bold",
+      color="#0F172A",
+      pad=10,
   )
   plt.tight_layout()
   buf = io.BytesIO()
@@ -188,51 +197,58 @@ def build_live_pdf_report(
   LIGHT_BG = colors.HexColor("#F8FAFC")
 
   styles = getSampleStyleSheet()
+
   title_style = ParagraphStyle(
       "T",
       parent=styles["Heading1"],
       fontName="Helvetica-Bold",
-      fontSize=18,
-      leading=22,
+      fontSize=22,
+      leading=26,
       textColor=PRIMARY_COLOR,
+      spaceAfter=4,
   )
+
   subtitle_style = ParagraphStyle(
       "ST",
       parent=styles["Normal"],
       fontName="Helvetica",
-      fontSize=9,
-      leading=12,
+      fontSize=10,
+      leading=14,
       textColor=colors.HexColor("#64748B"),
-      spaceAfter=8,
+      spaceAfter=12,
   )
+
+  # MEHR ABSTAND VOR UND NACH DEN ÜBERSCHRIFTEN
   section_heading = ParagraphStyle(
       "SH",
       parent=styles["Heading2"],
       fontName="Helvetica-Bold",
-      fontSize=11,
-      leading=15,
+      fontSize=12,
+      leading=16,
       textColor=PRIMARY_COLOR,
-      spaceBefore=8,
-      spaceAfter=4,
+      spaceBefore=16,
+      spaceAfter=10,
   )
+
   cell_style = ParagraphStyle(
       "C",
       parent=styles["Normal"],
       fontName="Helvetica",
-      fontSize=8,
-      leading=10,
+      fontSize=8.5,
+      leading=11,
       textColor=TEXT_COLOR,
   )
+
   cell_header_style = ParagraphStyle(
       "CH",
       parent=styles["Normal"],
       fontName="Helvetica-Bold",
-      fontSize=8,
-      leading=10,
+      fontSize=8.5,
+      leading=11,
       textColor=colors.white,
   )
 
-  # Header
+  # ================= SEITE 1: EXECUTIVE DASHBOARD =================
   today_str = datetime.now().strftime("%d.%m.%Y")
   story.append(Paragraph("SEO & Performance Kundenreport", title_style))
   story.append(
@@ -243,14 +259,14 @@ def build_live_pdf_report(
   )
   story.append(
       HRFlowable(
-          width="100%", thickness=1.5, color=ACCENT_COLOR, spaceAfter=10
+          width="100%", thickness=1.5, color=ACCENT_COLOR, spaceAfter=15
       )
   )
 
   # Section 1: KPI Summary
   story.append(
       Paragraph(
-          "📈 Performance Overview (30 Tage vs. Vorjahr)", section_heading
+          "Performance Overview (30 Tage vs. Vorjahr)", section_heading
       )
   )
   c_clicks, p_clicks, c_impr, p_impr = gsc_yoy_data
@@ -260,25 +276,25 @@ def build_live_pdf_report(
 
   kpi_data = [[
       Paragraph(
-          f"<b>Organische Klicks (GSC)</b><br/><font size=10"
+          f"<b>Organische Klicks (GSC)</b><br/><font size=11"
           f" color='#0F172A'><b>{int(c_clicks):,}</b></font><br/><font"
           f" color='#16A34A'>{calc_pct_str(c_clicks, p_clicks)}</font>",
           cell_style,
       ),
       Paragraph(
-          f"<b>Impressionen (GSC)</b><br/><font size=10"
+          f"<b>Impressionen (GSC)</b><br/><font size=11"
           f" color='#0F172A'><b>{int(c_impr):,}</b></font><br/><font"
           f" color='#16A34A'>{calc_pct_str(c_impr, p_impr)}</font>",
           cell_style,
       ),
       Paragraph(
-          f"<b>Besucher (Ahrefs)</b><br/><font size=10"
+          f"<b>Besucher (Ahrefs)</b><br/><font size=11"
           f" color='#0F172A'><b>{int(c_vis):,}</b></font><br/><font"
           f" color='#16A34A'>{calc_pct_str(c_vis, p_vis)}</font>",
           cell_style,
       ),
       Paragraph(
-          f"<b>Ø Seiten / Besucher</b><br/><font size=10"
+          f"<b>Ø Seiten / Besucher</b><br/><font size=11"
           f" color='#0F172A'><b>{pages_per_vis_curr:.2f}</b></font><br/><font"
           f" color='#D97706'>{calc_pct_str(pages_per_vis_curr, pages_per_vis_prev)}</font>",
           cell_style,
@@ -290,21 +306,25 @@ def build_live_pdf_report(
           ("BACKGROUND", (0, 0), (-1, -1), LIGHT_BG),
           ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#CBD5E1")),
           ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
-          ("PADDING", (0, 0), (-1, -1), 5),
+          ("PADDING", (0, 0), (-1, -1), 8),
           ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
       ])
   )
   story.append(kpi_table)
-  story.append(Spacer(1, 8))
+
+  # MEHR ABSTAND ZWISCHEN DEN SEKTIONEN
+  story.append(Spacer(1, 18))
 
   # Section 2: Visual Charts
   story.append(
-      Paragraph("📊 Visuelle Trend- & Keyword-Analyse", section_heading)
+      Paragraph("Visuelle Trend- & Keyword-Analyse", section_heading)
   )
-  gsc_img = Image(generate_gsc_chart_bytes(df_trend), width=320, height=110)
-  kw_img = Image(generate_kw_donut_bytes(df_display), width=190, height=110)
+  gsc_img = Image(generate_gsc_chart_bytes(df_trend), width=325, height=135)
 
-  chart_table = Table([[gsc_img, kw_img]], colWidths=[330, 193])
+  # QUADRATISCHER RENDER FÜR DEUTLICH RUNDEN CIRCLE
+  kw_img = Image(generate_kw_donut_bytes(df_display), width=135, height=135)
+
+  chart_table = Table([[gsc_img, kw_img]], colWidths=[335, 188])
   chart_table.setStyle(
       TableStyle([
           ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
@@ -313,15 +333,24 @@ def build_live_pdf_report(
       ])
   )
   story.append(chart_table)
-  story.append(Spacer(1, 8))
 
-  # Section 3: Live Keywords Table
+  # ================= SEITE 2: DETALLIERTE KEYWORD RANKINGS =================
+  story.append(PageBreak())
+
   story.append(
       Paragraph(
-          f"🏆 Top Keyword Rankings ({device_choice.capitalize()})",
+          f"Top Keyword Rankings ({device_choice.capitalize()})",
           section_heading,
       )
   )
+  story.append(
+      Paragraph(
+          "Aktuelle Platzierungen in den Suchergebnissen inkl. Trend und"
+          " Suchvolumen.",
+          subtitle_style,
+      )
+  )
+
   kw_headers = [
       Paragraph("Keyword", cell_header_style),
       Paragraph("Position", cell_header_style),
@@ -332,7 +361,8 @@ def build_live_pdf_report(
   ]
   kw_table_data = [kw_headers]
 
-  for _, row in df_display.head(20).iterrows():
+  # ZUM FÜLLEN VON SEITE 2 NEHMEN WIR JETZT BIS ZU 40 KEYWORDS MIT
+  for _, row in df_display.head(40).iterrows():
     kw_table_data.append([
         Paragraph(f"<b>{row['Keyword']}</b>", cell_style),
         Paragraph(str(row["Position"]), cell_style),
@@ -348,7 +378,7 @@ def build_live_pdf_report(
           ("BACKGROUND", (0, 0), (-1, 0), PRIMARY_COLOR),
           ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_BG]),
           ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
-          ("PADDING", (0, 0), (-1, -1), 4),
+          ("PADDING", (0, 0), (-1, -1), 5),
           ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
       ])
   )
